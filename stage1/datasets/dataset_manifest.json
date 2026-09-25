@@ -21,7 +21,7 @@
     200.0,
     12
   ],
-  "allow_flagged_in_dev_val": true,
+  "allow_flagged_in_dev_val": false,
   "allow_flagged_in_test": false,
   "n_pre_candidates": 500,
   "n_post_candidates": 1200,
@@ -45,9 +45,9 @@
     "test_b": 20
   },
   "sha256": {
-    "development": "73d834d1a867340e6d784a8d6abc41047544cab7849b90da7296f03f66a5c001",
-    "validation": "c306eae00b188b6a406c1f037b4872539db25c1afed058714a1e22bf05c6da60",
-    "test_a": "ac299d1150cb841cea16230860cd61714670b97b986aec3d29a7c8643688818d",
-    "test_b": "cc5a07d69067739b3f610d77d49b81a0377e774d315c8ae837d07561a7a1ccc9"
+    "development": "0f6dad4012b74f5c97cf0ff9f5e4913ee1ff6aba86ae53b0fdc64574944be866",
+    "validation": "a61ffb186d4c91eb650ea08f914a840e7473ecbac308ecbc07ba6e050e202d32",
+    "test_a": "d4c36b854e98fb083cb636dbe2565b660d19f01cae375d5bb49b1b0fc9237c3e",
+    "test_b": "ad336bcccf16c20b230e317654701d151e2957e23eeea6ae81353bd0a78d48f0"
   }
 }
