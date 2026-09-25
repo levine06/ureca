@@ -54,14 +54,20 @@ LARGE_LIGAND_MW   = 500.0                 # Da — auto-fail threshold
 MEDIUM_LIGAND_MW  = 200.0                 # Da — flag-for-review threshold
 TARGET_AUTO_PASSES = 200                  # aim for this many clean INCLUDEs (post-cutoff)
 
-# ── Dev / Val set parameters (relaxed — pre-cutoff structures) ─────────────────
+# ── Dev / Val set parameters (pre-cutoff structures) ──────────────────────────
 # The development set is used freely during method development and debugging.
-# The validation set is a held-out 20% subset used only for threshold / hyper-
-# parameter selection.  Both share the same looser screening criteria below.
-DEV_MIN_RESOLVED  = 0.80                  # fraction; more permissive than test sets
-DEV_MAX_XRAY_RES  = 3.5                   # Å; broader resolution envelope
-TARGET_DEV_PASSES = 300                   # aim for this many dev+val candidates
-VAL_FRACTION      = 0.20                  # 20% of accepted pre-cutoff → val set
+# The validation set is held out solely for threshold / hyperparameter selection.
+# All eight biological criteria (monomeric, soluble, 80–400 aa, resolved,
+# not disordered, not membrane, no large ligand, not obligate complex) apply,
+# but with the slightly relaxed numeric thresholds below.
+#
+# *** THESE THRESHOLDS REQUIRE EXPLICIT SCIENTIFIC APPROVAL ***
+# The original spec does not define dev/val quality bars.  The values below
+# are proposed defaults; confirm (or override) before locking the dataset:
+DEV_MIN_RESOLVED  = 0.80    # resolved fraction ≥0.80 (vs ≥0.90 for test sets)
+DEV_MAX_XRAY_RES  = 3.5     # X-ray resolution ≤3.5 Å (vs ≤2.5 Å for test sets)
+TARGET_DEV_PASSES = 300     # stop dev/val search once this many INCLUDEs accumulate
+VAL_FRACTION      = 0.20    # held-out fraction; split applied AFTER clustering
 
 # Required Stage 1 biological cases.  Prepending them to the RCSB result list
 # guarantees that they receive the same metadata acquisition and eight-criterion
@@ -130,153 +136,217 @@ MEMBRANE_SUBLOC_TOKENS = {
     "cell surface",
 }
 
+# ── Obligate complex subunit name patterns (Issue 7) ──────────────────────────
+# Proteins matching these patterns often crystallise as apparent monomers but
+# function exclusively as components of large obligate assemblies.  A one-chain
+# biological assembly does not rule this out.  These are flagged for review
+# rather than auto-rejected, because some isolated subunits are valid test cases.
+OBLIGATE_COMPLEX_PATTERNS = re.compile(
+    r"ribosomal\s+protein|"
+    r"histone[\s\-][Hh][1-5A-Z\-]*|"
+    r"spliceosom(al|e)|"
+    r"type[\s\-][IVX]+\s+secretion|"
+    r"(flagell[ai]r\s+hook|flagell[ai]r\s+(motor|subunit|ring|filament|basal))|"
+    r"chaperonin(?!\s*-\s*like)|"
+    r"proteasomal?\s+(subunit|regulatory|catalytic)|"
+    r"nucleosom(al|e)|"
+    r"condensi[mn]\s*(subunit|complex)|cohesin\s*(subunit|complex)|"
+    r"dynein\s+(heavy|light|intermediate)\s+chain|"
+    r"atp\s+synthase\s+(alpha|beta|gamma|subunit)|"
+    r"\b(rpl|rps|mrpl|mrps)\s*\d+\b|"
+    r"exosome\s+complex\s+subunit|"
+    r"mediator\s+(subunit|of\s+RNA)|"
+    r"26S\s+proteasome\s+(regulatory|subunit)|"
+    r"RNA\s+polymerase\s+(alpha|beta|omega|sigma|subunit)",
+    re.I,
+)
+
+# ── IDP name patterns for NMR disorder detection (Issue 2) ────────────────────
+# NMR structures always report resolved_fraction = 1.0 by RCSB convention, so
+# the standard resolved-fraction filter is completely uninformative for NMR.
+# Known intrinsically disordered proteins (IDPs) are flagged by protein name
+# even when UniProt disorder annotation is absent or incomplete.
+IDP_NAME_PATTERNS = re.compile(
+    r"alpha[\s\-]?synuclein|beta[\s\-]?synuclein|\bsynuclein\b|"
+    r"\btau\b(?!\s*(kinase|ligase|receptor))|tau\s+protein|"
+    r"\bFUS\b|fus/tls|"
+    r"\bTDP[\s\-]?43\b|"
+    r"\bhnRNP\b|"
+    r"huntingtin|\bHTT\b|"
+    r"\bataxin\b|"
+    r"intrinsically\s+disordered|"
+    r"natively\s+unfolded|"
+    r"prion[\s\-]like\s+domain|"
+    r"low[\s\-]complexity\s+(region|domain)|"
+    r"poly[\s\-]?glutamine|"
+    r"\bALS[\s\-]associated\b",
+    re.I,
+)
+
+# ── Synthetic / designed protein organism tokens (Issue 3) ────────────────────
+SYNTHETIC_ORGANISM_TOKENS = (
+    "synthetic construct",
+    "artificial sequence",
+    "designed protein",
+    "de novo protein",
+)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 1. RCSB SEARCH
+# 1. RCSB SEARCH  (stratified by method — Issue 1)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _build_method_group() -> dict:
-    """OR group matching X-RAY DIFFRACTION or SOLUTION NMR."""
+def _search_payload_one_method(
+    method_value: str,
+    date_attr: str,
+    date_op: str,
+    date_val: str,
+    limit: int,
+) -> dict:
+    """Build an RCSB Search payload restricted to one experimental method."""
     return {
-        "type": "group",
-        "logical_operator": "or",
-        "nodes": [
-            {
-                "type": "terminal", "service": "text",
-                "parameters": {
-                    "attribute": "exptl.method",
-                    "operator": "exact_match",
-                    "value": "X-RAY DIFFRACTION",
+        "query": {
+            "type": "group",
+            "logical_operator": "and",
+            "nodes": [
+                {
+                    "type": "terminal", "service": "text",
+                    "parameters": {
+                        "attribute": date_attr,
+                        "operator": date_op,
+                        "value": date_val,
+                    },
                 },
-            },
-            {
-                "type": "terminal", "service": "text",
-                "parameters": {
-                    "attribute": "exptl.method",
-                    "operator": "exact_match",
-                    "value": "SOLUTION NMR",
+                {
+                    "type": "terminal", "service": "text",
+                    "parameters": {
+                        "attribute": "entity_poly.rcsb_entity_polymer_type",
+                        "operator": "exact_match",
+                        "value": "Protein",
+                    },
                 },
-            },
-        ],
+                {
+                    "type": "terminal", "service": "text",
+                    "parameters": {
+                        "attribute": "entity_poly.rcsb_sample_sequence_length",
+                        "operator": "range",
+                        "value": {
+                            "from": MIN_LEN, "to": MAX_LEN,
+                            "include_lower": True, "include_upper": True,
+                        },
+                    },
+                },
+                {
+                    "type": "terminal", "service": "text",
+                    "parameters": {
+                        "attribute": "exptl.method",
+                        "operator": "exact_match",
+                        "value": method_value,
+                    },
+                },
+            ],
+        },
+        "return_type": "polymer_entity",
+        "request_options": {
+            "paginate": {"start": 0, "rows": limit},
+            "sort": [{"sort_by": "score", "direction": "desc"}],
+            "scoring_strategy": "combined",
+        },
     }
 
 
 def rcsb_search(limit: int) -> list[tuple[str, str]]:
     """
     Query RCSB Search API for POST-cutoff candidates.
-    Returns list of (entry_id, entity_id) pairs.
 
-    Hard filters applied here (all further biological checks in steps 3-5):
+    Stratified by method: X-ray structures receive ~2/3 of the limit,
+    NMR structures ~1/3.  X-ray results are placed first in the returned
+    list so the screening loop encounters them before NMR candidates.
+    Both sub-queries apply the same hard filters:
       - initial_release_date > cutoff  (post-cutoff structures)
       - polymer type = Protein
       - sequence length [80, 400]
-      - experimental method = X-RAY DIFFRACTION or SOLUTION NMR
-    """
-    payload = {
-        "query": {
-            "type": "group",
-            "logical_operator": "and",
-            "nodes": [
-                {
-                    "type": "terminal", "service": "text",
-                    "parameters": {
-                        "attribute": "rcsb_accession_info.initial_release_date",
-                        "operator": "greater",
-                        "value": f"{CUTOFF_DATE}T00:00:00Z",
-                    },
-                },
-                {
-                    "type": "terminal", "service": "text",
-                    "parameters": {
-                        "attribute": "entity_poly.rcsb_entity_polymer_type",
-                        "operator": "exact_match",
-                        "value": "Protein",
-                    },
-                },
-                {
-                    "type": "terminal", "service": "text",
-                    "parameters": {
-                        "attribute": "entity_poly.rcsb_sample_sequence_length",
-                        "operator": "range",
-                        "value": {
-                            "from": MIN_LEN, "to": MAX_LEN,
-                            "include_lower": True, "include_upper": True,
-                        },
-                    },
-                },
-                _build_method_group(),
-            ],
-        },
-        "return_type": "polymer_entity",
-        "request_options": {
-            "paginate": {"start": 0, "rows": limit},
-            "sort": [{"sort_by": "score", "direction": "desc"}],
-            "scoring_strategy": "combined",
-        },
-    }
 
-    print(f"[Search] Querying RCSB post-cutoff (limit={limit}) …", flush=True)
-    return _execute_search(payload, label="post-cutoff")
+    The ~2:1 X-ray:NMR ratio reflects the PDB composition (~88 % X-ray)
+    and keeps NMR structures as a useful minority rather than dominating
+    the candidate pool by chance (NMR entries almost always satisfy the
+    resolved-fraction filter because the field is conventionally set to 1.0).
+    """
+    xray_limit = max(1, int(limit * 2 / 3))
+    nmr_limit  = max(1, limit - xray_limit)
+
+    DATE_ATTR = "rcsb_accession_info.initial_release_date"
+    DATE_VAL  = f"{CUTOFF_DATE}T00:00:00Z"
+
+    print(f"[Search] Querying RCSB post-cutoff: "
+          f"X-ray limit={xray_limit}, NMR limit={nmr_limit} …", flush=True)
+    xray_results = _execute_search(
+        _search_payload_one_method(
+            "X-RAY DIFFRACTION", DATE_ATTR, "greater", DATE_VAL, xray_limit,
+        ),
+        label="post-cutoff/X-ray",
+    )
+    nmr_results = _execute_search(
+        _search_payload_one_method(
+            "SOLUTION NMR", DATE_ATTR, "greater", DATE_VAL, nmr_limit,
+        ),
+        label="post-cutoff/NMR",
+    )
+
+    # Merge X-ray first; deduplicate in case the same entity appears in both
+    seen: set[tuple[str, str]] = set()
+    out: list[tuple[str, str]] = []
+    for pair in xray_results + nmr_results:
+        if pair not in seen:
+            seen.add(pair)
+            out.append(pair)
+    print(f"[Search] post-cutoff total: {len(out)} unique entities "
+          f"({len(xray_results)} X-ray + {len(nmr_results)} NMR)", flush=True)
+    return out
 
 
 def rcsb_search_dev(limit: int) -> list[tuple[str, str]]:
     """
     Query RCSB Search API for PRE-cutoff candidates (dev / val sets).
-    Returns list of (entry_id, entity_id) pairs.
 
-    Hard filters:
-      - initial_release_date <= cutoff  (pre-cutoff structures)
-      - polymer type = Protein
-      - sequence length [80, 400]
-      - experimental method = X-RAY DIFFRACTION or SOLUTION NMR
+    Stratified identically to rcsb_search(): ~2/3 X-ray, ~1/3 NMR,
+    X-ray first.  The date filter uses strict less-than (< 2021-10-01)
+    to avoid any overlap with post-cutoff structures released on the
+    cutoff day itself.
+
     Resolution and resolved-fraction checks are deferred to screen_dev(),
     which uses the relaxed DEV_MAX_XRAY_RES / DEV_MIN_RESOLVED thresholds.
     """
-    payload = {
-        "query": {
-            "type": "group",
-            "logical_operator": "and",
-            "nodes": [
-                {
-                    "type": "terminal", "service": "text",
-                    "parameters": {
-                        "attribute": "rcsb_accession_info.initial_release_date",
-                        "operator": "less_or_equal",
-                        "value": f"{CUTOFF_DATE}T23:59:59Z",
-                    },
-                },
-                {
-                    "type": "terminal", "service": "text",
-                    "parameters": {
-                        "attribute": "entity_poly.rcsb_entity_polymer_type",
-                        "operator": "exact_match",
-                        "value": "Protein",
-                    },
-                },
-                {
-                    "type": "terminal", "service": "text",
-                    "parameters": {
-                        "attribute": "entity_poly.rcsb_sample_sequence_length",
-                        "operator": "range",
-                        "value": {
-                            "from": MIN_LEN, "to": MAX_LEN,
-                            "include_lower": True, "include_upper": True,
-                        },
-                    },
-                },
-                _build_method_group(),
-            ],
-        },
-        "return_type": "polymer_entity",
-        "request_options": {
-            "paginate": {"start": 0, "rows": limit},
-            "sort": [{"sort_by": "score", "direction": "desc"}],
-            "scoring_strategy": "combined",
-        },
-    }
+    xray_limit = max(1, int(limit * 2 / 3))
+    nmr_limit  = max(1, limit - xray_limit)
 
-    print(f"[Search-Dev] Querying RCSB pre-cutoff (limit={limit}) …", flush=True)
-    return _execute_search(payload, label="pre-cutoff")
+    DATE_ATTR = "rcsb_accession_info.initial_release_date"
+    DATE_VAL  = "2021-10-01T00:00:00Z"   # strictly before cutoff day
+
+    print(f"[Search-Dev] Querying RCSB pre-cutoff: "
+          f"X-ray limit={xray_limit}, NMR limit={nmr_limit} …", flush=True)
+    xray_results = _execute_search(
+        _search_payload_one_method(
+            "X-RAY DIFFRACTION", DATE_ATTR, "less", DATE_VAL, xray_limit,
+        ),
+        label="pre-cutoff/X-ray",
+    )
+    nmr_results = _execute_search(
+        _search_payload_one_method(
+            "SOLUTION NMR", DATE_ATTR, "less", DATE_VAL, nmr_limit,
+        ),
+        label="pre-cutoff/NMR",
+    )
+
+    seen: set[tuple[str, str]] = set()
+    out: list[tuple[str, str]] = []
+    for pair in xray_results + nmr_results:
+        if pair not in seen:
+            seen.add(pair)
+            out.append(pair)
+    print(f"[Search-Dev] pre-cutoff total: {len(out)} unique entities "
+          f"({len(xray_results)} X-ray + {len(nmr_results)} NMR)", flush=True)
+    return out
 
 
 def _execute_search(payload: dict, label: str) -> list[tuple[str, str]]:
@@ -594,7 +664,7 @@ def classify_ligands(nonpolymer_entities: list) -> tuple[str, list[str]]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 5. SCREENING LOGIC
+# 6. SCREENING LOGIC
 # ══════════════════════════════════════════════════════════════════════════════
 
 def screen(
@@ -637,7 +707,9 @@ def screen(
         notes.append("entity not found in GraphQL response")
         return res
 
-    # ── (1) Monomeric / not obligate complex ──────────────────────────────────
+    prot_name_local = (target.get("rcsb_polymer_entity") or {}).get("pdbx_description") or ""
+
+    # ── (1) Monomeric ─────────────────────────────────────────────────────────
     assemblies = entry.get("assemblies") or []
     asm1 = None
     for a in assemblies:
@@ -650,7 +722,7 @@ def screen(
     n_chains = (asm1.get("rcsb_assembly_info") or {}).get(
         "polymer_entity_instance_count_protein"
     ) if asm1 else None
-    oligo    = ""  # oligomeric_details not in current RCSB schema
+    oligo    = ""
 
     if n_chains is None:
         res["monomeric"] = "FLAG"
@@ -663,6 +735,15 @@ def screen(
         notes.append(f"Assembly 1 has {n_chains} protein chains — not monomeric ({oligo})")
 
     res["not_obligate_complex"] = "PASS" if res["monomeric"] == "PASS" else "FAIL"
+
+    # Name-based obligate complex heuristic (Issue 7): proteins that crystallise
+    # as apparent monomers can still be obligate subunits of large assemblies.
+    if OBLIGATE_COMPLEX_PATTERNS.search(prot_name_local) and res["not_obligate_complex"] == "PASS":
+        res["not_obligate_complex"] = "FLAG"
+        flagged.append(
+            f"Protein name suggests obligate complex subunit "
+            f"('{prot_name_local[:80]}') — verify monomeric biological function"
+        )
 
     # ── (2) Sequence length ────────────────────────────────────────────────────
     seq_len = (target.get("entity_poly") or {}).get("rcsb_sample_sequence_length") or 0
@@ -691,9 +772,21 @@ def screen(
             xray_ok = False
             notes.append(f"X-ray resolution {resolution_val:.2f} Å > {MAX_XRAY_RES} Å limit")
 
-    if res_frac >= MIN_RESOLVED and xray_ok:
+    if is_nmr:
+        # NMR resolved_fraction is always 1.0 by RCSB convention — this
+        # filter is uninformative and is skipped for NMR structures.
+        # Disorder is assessed separately below using name and UniProt data.
         res["resolved_ok"] = "PASS"
-        notes.append(f"Resolved fraction: {res_frac:.4f}" + (f"; resolution {resolution_val:.2f} Å" if resolution_val else " (NMR)"))
+        notes.append(
+            "NMR structure — resolved fraction conventionally 1.0 "
+            "(filter not applied; disorder assessed from name and UniProt)"
+        )
+    elif res_frac >= MIN_RESOLVED and xray_ok:
+        res["resolved_ok"] = "PASS"
+        notes.append(
+            f"Resolved fraction: {res_frac:.4f}"
+            + (f"; resolution {resolution_val:.2f} Å" if resolution_val else "")
+        )
     elif not xray_ok:
         res["resolved_ok"] = "FAIL"
     else:
@@ -701,7 +794,24 @@ def screen(
         notes.append(f"Resolved fraction {res_frac:.4f} < {MIN_RESOLVED}")
 
     # ── (4) Not heavily disordered ────────────────────────────────────────────
-    if up_flags and up_flags.get("has_disorder_annot"):
+    if is_nmr:
+        # For NMR: resolved_fraction is uninformative (always 1.0).
+        # Use protein name pattern (IDPs) and UniProt as the disorder signal.
+        if IDP_NAME_PATTERNS.search(prot_name_local):
+            res["not_disordered"] = "FLAG"
+            flagged.append(
+                f"NMR structure with IDP-associated protein name "
+                f"('{prot_name_local[:80]}') — high likelihood of intrinsic disorder"
+            )
+        elif up_flags and up_flags.get("has_disorder_annot"):
+            res["not_disordered"] = "FLAG"
+            flagged.append(
+                "NMR structure + UniProt annotates disordered regions — "
+                "verify extent of disorder before including"
+            )
+        else:
+            res["not_disordered"] = "PASS"
+    elif up_flags and up_flags.get("has_disorder_annot"):
         if res_frac < MIN_RESOLVED:
             res["not_disordered"] = "FAIL"
             notes.append("UniProt: disordered region annotated + low resolved fraction")
@@ -731,8 +841,15 @@ def screen(
         if up_flags["is_membrane_assoc"] and not up_flags["has_transmembrane"]:
             sublocs = "; ".join(up_flags["subloc_values"][:3])
             mem_flag.append(f"UniProt subcellular location includes membrane/cell-surface ({sublocs})")
-    elif up_flags and not up_flags["available"]:
-        mem_flag.append("UniProt data unavailable — manual membrane/lipidation check required")
+    elif up_flags and not up_flags.get("available"):
+        if up_flags.get("synthetic_no_uniprot"):
+            # Issue 3: synthetic / designed proteins with no UniProt record
+            mem_flag.append(
+                "Synthetic/designed protein with no UniProt accession — "
+                "cannot verify membrane or lipidation status"
+            )
+        else:
+            mem_flag.append("UniProt data unavailable — manual membrane/lipidation check required")
 
     if mem_fail:
         res["not_membrane"] = "FAIL"
@@ -785,6 +902,7 @@ def screen_dev(
       - Resolved fraction threshold: DEV_MIN_RESOLVED (0.80) instead of 0.90.
       - Medium-weight ligands are PASS (not FLAG) — common in older structures.
       - Disorder annotation alone is a FLAG, not a FAIL, unless resolved < 0.80.
+      - NMR disorder: same IDP-name and UniProt-based logic as screen().
 
     Core hard-fail criteria (unchanged):
       - Monomeric (1 protein chain instance in assembly 1)
@@ -821,6 +939,8 @@ def screen_dev(
         notes.append("entity not found in GraphQL response")
         return res
 
+    prot_name_local = (target.get("rcsb_polymer_entity") or {}).get("pdbx_description") or ""
+
     # ── (1) Monomeric ─────────────────────────────────────────────────────────
     assemblies = entry.get("assemblies") or []
     asm1 = next(
@@ -843,6 +963,14 @@ def screen_dev(
         notes.append(f"Assembly 1 has {n_chains} protein chains — not monomeric")
 
     res["not_obligate_complex"] = "PASS" if res["monomeric"] == "PASS" else "FAIL"
+
+    # Name-based obligate complex heuristic (Issue 7) — same as screen()
+    if OBLIGATE_COMPLEX_PATTERNS.search(prot_name_local) and res["not_obligate_complex"] == "PASS":
+        res["not_obligate_complex"] = "FLAG"
+        flagged.append(
+            f"Protein name suggests obligate complex subunit "
+            f"('{prot_name_local[:80]}') — verify monomeric biological function"
+        )
 
     # ── (2) Sequence length ───────────────────────────────────────────────────
     seq_len = (target.get("entity_poly") or {}).get("rcsb_sample_sequence_length") or 0
@@ -871,11 +999,17 @@ def screen_dev(
             xray_ok = False
             notes.append(f"X-ray resolution {resolution_val:.2f} Å > {DEV_MAX_XRAY_RES} Å limit")
 
-    if res_frac >= DEV_MIN_RESOLVED and xray_ok:
+    if is_nmr:
+        res["resolved_ok"] = "PASS"
+        notes.append(
+            "NMR structure — resolved fraction conventionally 1.0 "
+            "(filter not applied; disorder assessed from name and UniProt)"
+        )
+    elif res_frac >= DEV_MIN_RESOLVED and xray_ok:
         res["resolved_ok"] = "PASS"
         notes.append(
             f"Resolved fraction: {res_frac:.4f}"
-            + (f"; resolution {resolution_val:.2f} Å" if resolution_val else " (NMR)")
+            + (f"; resolution {resolution_val:.2f} Å" if resolution_val else "")
         )
     elif not xray_ok:
         res["resolved_ok"] = "FAIL"
@@ -883,8 +1017,23 @@ def screen_dev(
         res["resolved_ok"] = "FAIL"
         notes.append(f"Resolved fraction {res_frac:.4f} < {DEV_MIN_RESOLVED}")
 
-    # ── (4) Disorder: flag only (not fail) for dev set ────────────────────────
-    if up_flags and up_flags.get("has_disorder_annot"):
+    # ── (4) Disorder: flag only (not fail) for dev set, NMR-aware ────────────
+    if is_nmr:
+        if IDP_NAME_PATTERNS.search(prot_name_local):
+            res["not_disordered"] = "FLAG"
+            flagged.append(
+                f"NMR structure with IDP-associated protein name "
+                f"('{prot_name_local[:80]}') — high likelihood of intrinsic disorder"
+            )
+        elif up_flags and up_flags.get("has_disorder_annot"):
+            res["not_disordered"] = "FLAG"
+            flagged.append(
+                "NMR structure + UniProt annotates disordered regions — "
+                "acceptable for dev set; verify extent"
+            )
+        else:
+            res["not_disordered"] = "PASS"
+    elif up_flags and up_flags.get("has_disorder_annot"):
         if res_frac < DEV_MIN_RESOLVED:
             res["not_disordered"] = "FAIL"
             notes.append("UniProt: disordered region annotated + low resolved fraction")
@@ -914,8 +1063,14 @@ def screen_dev(
         if up_flags["is_membrane_assoc"] and not up_flags["has_transmembrane"]:
             sublocs = "; ".join(up_flags["subloc_values"][:3])
             mem_flag.append(f"UniProt subcellular location includes membrane/cell-surface ({sublocs})")
-    elif up_flags and not up_flags["available"]:
-        mem_flag.append("UniProt data unavailable — manual membrane/lipidation check required")
+    elif up_flags and not up_flags.get("available"):
+        if up_flags.get("synthetic_no_uniprot"):
+            mem_flag.append(
+                "Synthetic/designed protein with no UniProt accession — "
+                "cannot verify membrane or lipidation status"
+            )
+        else:
+            mem_flag.append("UniProt data unavailable — manual membrane/lipidation check required")
 
     if mem_fail:
         res["not_membrane"] = "FAIL"
@@ -961,9 +1116,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Automated Stage 1 protein dataset builder"
     )
-    parser.add_argument("--limit",     type=int, default=4000,
+    parser.add_argument("--limit",     type=int, default=100,
                         help="Max polymer_entity results from RCSB Search for post-cutoff (default 1000)")
-    parser.add_argument("--dev-limit", type=int, default=1500,
+    parser.add_argument("--dev-limit", type=int, default=100,
                         help="Max polymer_entity results from RCSB Search for dev/val pre-cutoff (default 1500)")
     parser.add_argument("--out-dir",   default="./output",
                         help="Output directory for CSV files (default ./output)")
@@ -977,8 +1132,7 @@ def main() -> None:
     # ── Step 1: Search ─────────────────────────────────────────────────────────
     print("\n=== Step 1a: RCSB Search — post-cutoff (test set candidates) ===")
     candidates = rcsb_search(args.limit)
-    priority_keys = set(PRIORITY_ENTITIES)
-    candidates = PRIORITY_ENTITIES + [c for c in candidates if c not in priority_keys]
+    candidates = PRIORITY_ENTITIES + [c for c in candidates if c not in set(PRIORITY_ENTITIES)]
 
     dev_candidates: list[tuple[str, str]] = []
     if not args.skip_dev:
@@ -999,10 +1153,13 @@ def main() -> None:
     rows_master  = []
     rows_screen  = []
     rows_review  = []
-    rows_dev     = []   # pre-cutoff INCLUDE/FLAG_REVIEW rows for dev set
-    rows_val     = []   # held-out 20% of dev rows for validation set
+    rows_dev     = []   # pre-cutoff INCLUDE-only rows (no FLAG_REVIEW)
     pass_count   = 0
     dev_pass_count = 0
+
+    # Build set once — used for O(1) membership test inside the loop
+    dev_candidate_set = set(dev_candidates)
+    priority_keys_set = set(PRIORITY_ENTITIES)
 
     # Screen post-cutoff candidates first, then pre-cutoff dev/val
     all_candidates_ordered = candidates + [
@@ -1067,6 +1224,25 @@ def main() -> None:
 
         res_frac = resolved_fraction(target, entry, chain_id)
 
+        # ── Issue 3: Synthetic / designed protein flag ─────────────────────────
+        # Synthetic constructs have no natural sequence and therefore no UniProt
+        # accession.  Without UniProt we cannot verify membrane or lipidation
+        # status, so we inject a flag that the screening functions will surface.
+        if not up_acc and organism and any(
+            tok in organism.lower() for tok in SYNTHETIC_ORGANISM_TOKENS
+        ):
+            # Build a minimal flag dict so the screening functions see the flag
+            up_flags = {
+                "has_transmembrane":  False,
+                "has_lipidation":     False,
+                "has_gpi_anchor":     False,
+                "is_membrane_assoc":  False,
+                "has_disorder_annot": False,
+                "subloc_values":      [],
+                "available":          False,
+                "synthetic_no_uniprot": True,
+            }
+
         assemblies = entry.get("assemblies") or []
         asm1 = None
         for a in assemblies:
@@ -1091,8 +1267,8 @@ def main() -> None:
         ligands_str = "; ".join(lig_display) if lig_display else "none"
 
         # Determine whether this is a pre-cutoff (dev/val) or post-cutoff entry
-        is_dev_candidate = (entry_id, entity_id) in set(dev_candidates) and \
-                           (entry_id, entity_id) not in priority_keys
+        is_dev_candidate = (entry_id, entity_id) in dev_candidate_set and \
+                           (entry_id, entity_id) not in priority_keys_set
 
         # Screen: relaxed criteria for pre-cutoff dev/val; strict for post-cutoff
         if is_dev_candidate:
@@ -1106,10 +1282,10 @@ def main() -> None:
         if release > CUTOFF_DATE:
             split = "post_cutoff_candidate"
         else:
-            split = "development_candidate"   # refined to dev/val below
+            split = "development_candidate"   # refined to dev/val by compute_similarity.py
 
         candidate_key = (entry_id, entity_id)
-        is_priority = candidate_key in priority_keys
+        is_priority = candidate_key in priority_keys_set
         notes_str  = "; ".join(result["notes"])
         flags_str  = "; ".join(result["flag_reasons"])
 
@@ -1196,8 +1372,11 @@ def main() -> None:
         if result["flag_reasons"]:
             rows_review.append({**master_row, "review_reasons": flags_str})
 
-        # Route pre-cutoff accepted entries to dev pool (val split applied later)
-        if is_dev_candidate and overall in ("INCLUDE", "FLAG_REVIEW"):
+        # Route pre-cutoff INCLUDE-only entries to dev pool.
+        # FLAG_REVIEW entries are NOT accepted until manually reviewed.
+        # The dev/val split (80/20) is deferred to compute_similarity.py so it
+        # can be applied at cluster boundaries, preventing leakage.
+        if is_dev_candidate and overall == "INCLUDE":
             rows_dev.append(master_row)
 
         if (idx + 1) % 100 == 0:
@@ -1209,39 +1388,30 @@ def main() -> None:
                 flush=True,
             )
 
-        # Early stop for post-cutoff once we hit the target
-        # (pre-cutoff dev/val search runs to its own --dev-limit)
+        # Early stop: post-cutoff test candidates
         if (not is_dev_candidate
                 and pass_count >= int(TARGET_AUTO_PASSES * 1.4)
                 and idx > 300):
             print(
                 f"\n  Reached {pass_count} post-cutoff auto-passes "
-                f"(target: {TARGET_AUTO_PASSES}). Continuing dev/val …",
+                f"(target {TARGET_AUTO_PASSES}). Stopping post-cutoff search.",
                 flush=True,
             )
+            break
 
-    # ── Dev / Val split ────────────────────────────────────────────────────────
-    # Deterministic 80/20 split by sorted PDB ID — reproducible without a seed.
-    # After compute_similarity.py runs clustering on the full pre-cutoff pool,
-    # re-assign by cluster so that no cluster spans both sets.
+        # Early stop: dev/val pre-cutoff candidates
+        if is_dev_candidate and dev_pass_count >= int(TARGET_DEV_PASSES * 1.4):
+            print(
+                f"\n  Reached {dev_pass_count} dev auto-passes "
+                f"(target {TARGET_DEV_PASSES}). Stopping dev/val search.",
+                flush=True,
+            )
+            break
+
+    # Dev/val split is intentionally NOT done here.
+    # compute_similarity.py will cluster all sequences and then assign the 80/20
+    # split at cluster boundaries so no cluster straddles both sets.
     rows_dev_sorted = sorted(rows_dev, key=lambda r: (r["PDB_ID"], r["entity_ID"]))
-    val_count = max(1, round(len(rows_dev_sorted) * VAL_FRACTION))
-    # Take every 5th entry as val to spread them across the alphabet
-    val_indices = set(range(0, len(rows_dev_sorted), 5)[:val_count])
-    for i, row in enumerate(rows_dev_sorted):
-        if i in val_indices:
-            row["training_or_test_split"] = "validation_set"
-            rows_val.append(row)
-        else:
-            row["training_or_test_split"] = "development_set"
-
-    # Update master rows with refined dev/val labels
-    split_map = {(r["PDB_ID"], r["entity_ID"]): r["training_or_test_split"]
-                 for r in rows_dev_sorted}
-    for row in rows_master:
-        key = (row["PDB_ID"], row["entity_ID"])
-        if key in split_map:
-            row["training_or_test_split"] = split_map[key]
 
     # ── Write CSVs ─────────────────────────────────────────────────────────────
     print(f"\n=== Writing outputs to {out_dir} ===")
@@ -1275,14 +1445,13 @@ def main() -> None:
             writer.writerows(rows)
         print(f"  {path.name}: {len(rows)} rows")
 
-    write_csv(out_dir / "master_candidates.csv",  rows_master,  MASTER_FIELDS)
-    write_csv(out_dir / "screening_detail.csv",   rows_screen,  SCREEN_FIELDS)
-    write_csv(out_dir / "review_queue.csv",        rows_review,  REVIEW_FIELDS)
+    write_csv(out_dir / "master_candidates.csv",  rows_master,    MASTER_FIELDS)
+    write_csv(out_dir / "screening_detail.csv",   rows_screen,    SCREEN_FIELDS)
+    write_csv(out_dir / "review_queue.csv",        rows_review,    REVIEW_FIELDS)
+    # dev_set.csv contains all pre-cutoff INCLUDEs; dev/val split is applied
+    # by compute_similarity.py after clustering (to avoid leakage).
     if rows_dev_sorted:
-        dev_only  = [r for r in rows_dev_sorted
-                     if r["training_or_test_split"] == "development_set"]
-        write_csv(out_dir / "dev_set.csv",         dev_only,     MASTER_FIELDS)
-        write_csv(out_dir / "val_set.csv",         rows_val,     MASTER_FIELDS)
+        write_csv(out_dir / "dev_set.csv",         rows_dev_sorted, MASTER_FIELDS)
 
     # ── Summary ────────────────────────────────────────────────────────────────
     test_screen = [r for r in rows_screen if r.get("set_type") != "dev_val"]
@@ -1291,15 +1460,20 @@ def main() -> None:
     n_test_pass = sum(1 for r in test_screen if r["overall_decision"] == "INCLUDE")
     n_test_fail = sum(1 for r in test_screen if r["overall_decision"] == "EXCLUDE")
     n_test_flag = sum(1 for r in test_screen if r["overall_decision"] == "FLAG")
-    n_dev_pass  = sum(1 for r in dev_screen  if r["overall_decision"] == "INCLUDE")
-    n_val       = len(rows_val)
-    n_dev       = len([r for r in rows_dev_sorted
-                       if r["training_or_test_split"] == "development_set"])
+    n_dev_pass  = len(rows_dev_sorted)
+
+    # Method breakdown for transparency
+    test_nmr  = sum(1 for r in rows_master
+                    if r.get("set_type") != "dev_val" and "NMR" in r.get("experimental_method", ""))
+    test_xray = sum(1 for r in rows_master
+                    if r.get("set_type") != "dev_val" and "X-RAY" in r.get("experimental_method", ""))
 
     print(f"""
 === Run summary ===
   POST-CUTOFF (test set candidates)
     Processed  : {len(test_screen)}
+      X-ray    : {test_xray}
+      NMR      : {test_nmr}
     INCLUDE    : {n_test_pass}
     EXCLUDE    : {n_test_fail}
     FLAG       : {n_test_flag}
@@ -1307,27 +1481,27 @@ def main() -> None:
      if n_test_pass >= TARGET_AUTO_PASSES
      else '✗ Target not yet met — re-run with a higher --limit.'}
 
-  PRE-CUTOFF (dev / val sets)
+  PRE-CUTOFF (dev / val candidates)
     Processed  : {len(dev_screen)}
-    Accepted   : {n_dev_pass}  (criteria: monomeric, soluble, 80-400 aa, ≥80% resolved, ≤3.5 Å)
-    → development_set : {n_dev}  (80%)
-    → validation_set  : {n_val}  (20%, every 5th by PDB ID)
+    INCLUDE    : {n_dev_pass}
+    (screening criteria: 8 biological criteria, ≥{DEV_MIN_RESOLVED:.0%} resolved, ≤{DEV_MAX_XRAY_RES} Å)
+    *** CONFIRM DEV/VAL THRESHOLDS before use — see DEV_MIN_RESOLVED / DEV_MAX_XRAY_RES ***
     {'(skipped — run without --skip-dev to generate)' if args.skip_dev else ''}
 
 Outputs
-  master_candidates.csv  — all entries, all sets, training_or_test_split labelled
+  master_candidates.csv  — all entries; training_or_test_split = "development_candidate"
+                           for pre-cutoff INCLUDEs (dev/val split deferred)
   screening_detail.csv   — per-criterion verdicts for every candidate
   review_queue.csv       — FLAG entries requiring manual review
-  dev_set.csv            — development set (pre-cutoff, 80%)
-  val_set.csv            — validation set  (pre-cutoff, 20%)
+  dev_set.csv            — all accepted pre-cutoff candidates (dev+val combined)
 
 Next steps
-  1. Review review_queue.csv for FLAG entries.
-  2. Run compute_similarity.py on master_candidates.csv to assign Test A / Test B
-     labels and cluster pre-cutoff sequences.
-  3. After clustering, optionally reassign dev/val split by cluster boundary
-     (edit training_or_test_split in master_candidates.csv) to prevent
-     near-identical sequences spanning both sets.
+  1. Review review_queue.csv for FLAG entries; promote confirmed ones by editing
+     screening_status to 'manual_screen_pass' in master_candidates.csv.
+  2. Run compute_similarity.py on master_candidates.csv.
+     It will: cluster all sequences (including dev_screen_pass rows),
+     assign Test A / Test B labels, AND split dev into development_set /
+     validation_set at cluster boundaries (80/20, no within-cluster leakage).
 """)
 
 
