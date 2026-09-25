@@ -137,6 +137,8 @@ Test A and Test B are mutually exclusive.
 - Chain: `A`
 - Split: Test A
 
+pro-IL-18 is not pinned to a split. It is placed in Test A because its 30% sequence cluster contains a structure released before the cutoff; if a future re-clustering removed that member, it would move to Test B.
+
 ---
 
 ### Test B — Difficult-Generalization Test
@@ -208,7 +210,7 @@ These targets are retained even if they fail one or more of the standard benchma
 
 ## Generated Dataset Files
 
-> **Note:** the committed CSV snapshot below was produced by the previous version of `build_dataset.py`, before the UniProt/OPM/ligand biological screen was added. Re-run the script to regenerate the datasets (including `review_queue.csv`, `manual_inspection_sample.csv`, and `dataset_manifest.json`) with the current filters.
+The committed CSV files are the snapshot produced by the current `build_dataset.py`.
 
 ### `all_candidates.csv`
 
@@ -217,7 +219,12 @@ Contains all successfully retrieved pre- and post-cutoff candidates with their p
 Current snapshot:
 
 ```text
-1002 candidates
+1702 candidates  (500 pre-cutoff + 1200 post-cutoff + 2 priority targets)
+
+                 INCLUDE   FLAG   EXCLUDE
+pre-cutoff           119     74       307
+post-cutoff          157    262       783
+total                276    336      1090
 ```
 
 ---
@@ -236,7 +243,7 @@ It also records information used during split construction, including:
 Current snapshot:
 
 ```text
-247 candidates
+352 candidates  (350 passing the standard filters + 2 priority targets)
 ```
 
 ---
@@ -244,6 +251,8 @@ Current snapshot:
 ### `review_queue.csv`
 
 Candidates with a `FLAG` decision, plus the priority targets, for manual review.
+
+Current snapshot: 338 rows (336 flagged candidates + 2 priority targets).
 
 ---
 
@@ -269,6 +278,8 @@ test_b.csv         20 proteins
 ```
 
 The four selected datasets are mutually exclusive and do not share RCSB 30% sequence clusters.
+
+Because flagged pre-cutoff proteins are allowed in development and validation, 12 of the 30 development proteins and 7 of the 15 validation proteins currently have a `FLAG` decision. Test A and Test B contain only `INCLUDE` proteins plus the priority targets.
 
 ---
 
