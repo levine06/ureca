@@ -6,3 +6,5 @@ __pycache__/
 *.pyc
 .DS_Store
 reference_structures/
+.claude/
+*.swp
