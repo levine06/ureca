@@ -69,10 +69,9 @@ LARGE_LIGAND_HEAVY_ATOMS = 25
 MEDIUM_LIGAND_MW = 200.0
 MEDIUM_LIGAND_HEAVY_ATOMS = 12
 
-# FLAG candidates need manual review. Development/validation proteins are
-# used freely during method development, so flagged pre-cutoff proteins are
-# allowed there. The locked test sets only accept clean INCLUDE decisions.
-ALLOW_FLAGGED_IN_DEV_VAL = True
+# FLAG candidates need manual review and are not included in the standard
+# development/validation or locked test sets.
+ALLOW_FLAGGED_IN_DEV_VAL = False
 ALLOW_FLAGGED_IN_TEST = False
 
 # Number of raw candidates to inspect from each side of the cutoff.
@@ -1115,6 +1114,8 @@ CRITERIA = [
     "soluble",
     "not_membrane",
     "length_80_400",
+    "sequence_length_consistent",
+    "no_terminal_his_tag",
     "resolved_ge_0_90",
     "structure_quality",
     "not_heavily_disordered",
@@ -1292,6 +1293,32 @@ def screen_candidate(
             "length_80_400",
             f"length {row['length']} outside "
             f"[{MIN_LENGTH}, {MAX_LENGTH}]",
+        )
+
+    # --------------------------------------------------------
+    # Construct sequence sanity checks
+    # --------------------------------------------------------
+
+    verdicts["sequence_length_consistent"] = "PASS"
+
+    if len(row["sequence"]) != row["length"]:
+        flag(
+            "sequence_length_consistent",
+            f"sequence string length {len(row['sequence'])} "
+            f"!= metadata length {row['length']}",
+        )
+
+    verdicts["no_terminal_his_tag"] = "PASS"
+
+    sequence = row["sequence"]
+
+    if (
+        re.search(r"H{5,}", sequence[:30])
+        or re.search(r"H{5,}", sequence[-30:])
+    ):
+        flag(
+            "no_terminal_his_tag",
+            "possible terminal poly-His expression tag",
         )
 
     # --------------------------------------------------------
@@ -1677,22 +1704,36 @@ def take_cluster_representatives(
     n,
     rng,
     excluded_clusters=None,
+    excluded_uniprots=None,
 ):
     """
-    Select at most one structure from each 30% sequence cluster.
+    Select at most one structure from each 30% sequence cluster and each
+    non-empty UniProt accession.
     """
 
     if excluded_clusters is None:
         excluded_clusters = set()
 
+    if excluded_uniprots is None:
+        excluded_uniprots = set()
+
+    uniprot_accessions = (
+        df["uniprot_accession"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
     working = df[
-        ~df["sequence_cluster"].isin(
-            excluded_clusters
+        (~df["sequence_cluster"].isin(excluded_clusters))
+        & (
+            (uniprot_accessions == "")
+            | (~uniprot_accessions.isin(excluded_uniprots))
         )
     ].copy()
 
     # Shuffle first so we do not always keep the same PDB
-    # when a cluster contains multiple candidates.
+    # when a cluster or UniProt accession contains multiple candidates.
     random_state = rng.randint(
         0,
         2**32 - 1,
@@ -1707,6 +1748,22 @@ def take_cluster_representatives(
         subset=["sequence_cluster"],
         keep="first",
     )
+
+    working_uniprots = (
+        working["uniprot_accession"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    duplicate_uniprot = (
+        working_uniprots.ne("")
+        & working_uniprots.duplicated(keep="first")
+    )
+
+    working = working[
+        ~duplicate_uniprot
+    ].copy()
 
     random_state = rng.randint(
         0,
@@ -1729,7 +1786,7 @@ def create_splits(df):
         test_a
         test_b
 
-    with no 30%-cluster overlap between the selected sets.
+    with no 30%-cluster or non-empty UniProt overlap between the selected sets.
 
     Supervisor-selected priority targets are guaranteed inclusion.
     A priority target with a forced_split goes to that split. Other
@@ -1737,8 +1794,8 @@ def create_splits(df):
       - Test B if their 30% cluster has no pre-cutoff PDB member
       - Test A otherwise
 
-    Their sequence clusters are reserved before development/validation
-    sampling so the selected splits remain cluster-disjoint.
+    Their sequence clusters and UniProt accessions are reserved before
+    development/validation sampling so the selected splits remain disjoint.
     """
 
     rng = random.Random(RANDOM_SEED)
@@ -1761,6 +1818,15 @@ def create_splits(df):
         .tolist()
     )
 
+    priority_uniprots = set(
+        priority["uniprot_accession"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .loc[lambda values: values != ""]
+        .tolist()
+    )
+
     # --------------------------------------------------------
     # DEVELOPMENT
     # --------------------------------------------------------
@@ -1774,11 +1840,24 @@ def create_splits(df):
         N_DEVELOPMENT,
         rng,
         excluded_clusters=priority_clusters,
+        excluded_uniprots=priority_uniprots,
     )
 
     used_clusters = (
         set(development["sequence_cluster"])
         | priority_clusters
+    )
+
+    used_uniprots = (
+        set(
+            development["uniprot_accession"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .loc[lambda values: values != ""]
+            .tolist()
+        )
+        | priority_uniprots
     )
 
     # --------------------------------------------------------
@@ -1792,10 +1871,20 @@ def create_splits(df):
         N_VALIDATION,
         rng,
         excluded_clusters=used_clusters,
+        excluded_uniprots=used_uniprots,
     )
 
     used_clusters.update(
         validation["sequence_cluster"]
+    )
+
+    used_uniprots.update(
+        validation["uniprot_accession"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .loc[lambda values: values != ""]
+        .tolist()
     )
 
     # --------------------------------------------------------
@@ -1854,6 +1943,7 @@ def create_splits(df):
         n_test_b_remaining,
         rng,
         excluded_clusters=used_clusters,
+        excluded_uniprots=used_uniprots,
     )
 
     test_b = pd.concat(
@@ -1867,6 +1957,15 @@ def create_splits(df):
     used_clusters.update(
         test_b["sequence_cluster"]
         .dropna()
+        .tolist()
+    )
+
+    used_uniprots.update(
+        test_b["uniprot_accession"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .loc[lambda values: values != ""]
         .tolist()
     )
 
@@ -1896,6 +1995,7 @@ def create_splits(df):
         n_test_a_remaining,
         rng,
         excluded_clusters=used_clusters,
+        excluded_uniprots=used_uniprots,
     )
 
     test_a = pd.concat(
