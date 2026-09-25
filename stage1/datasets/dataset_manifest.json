@@ -1,0 +1,53 @@
+{
+  "cutoff_date": "2021-09-30",
+  "random_seed": 42,
+  "length_range": [
+    80,
+    400
+  ],
+  "min_resolved_fraction": 0.9,
+  "max_resolution_angstrom": 3.5,
+  "allowed_methods": [
+    "ELECTRON MICROSCOPY",
+    "X-RAY DIFFRACTION"
+  ],
+  "max_unobserved_segment": 20,
+  "max_disorder_annotation_fraction": 0.2,
+  "large_ligand": [
+    500.0,
+    25
+  ],
+  "medium_ligand": [
+    200.0,
+    12
+  ],
+  "allow_flagged_in_dev_val": true,
+  "allow_flagged_in_test": false,
+  "n_pre_candidates": 500,
+  "n_post_candidates": 1200,
+  "sequence_cluster_identity": 0.3,
+  "priority_targets": {
+    "8EXF": {
+      "chain_id": "B",
+      "protein_name": "BCCIPalpha",
+      "forced_split": "test_b"
+    },
+    "8URV": {
+      "chain_id": "A",
+      "protein_name": "pro-IL-18",
+      "forced_split": null
+    }
+  },
+  "split_sizes": {
+    "development": 30,
+    "validation": 15,
+    "test_a": 20,
+    "test_b": 20
+  },
+  "sha256": {
+    "development": "73d834d1a867340e6d784a8d6abc41047544cab7849b90da7296f03f66a5c001",
+    "validation": "c306eae00b188b6a406c1f037b4872539db25c1afed058714a1e22bf05c6da60",
+    "test_a": "ac299d1150cb841cea16230860cd61714670b97b986aec3d29a7c8643688818d",
+    "test_b": "cc5a07d69067739b3f610d77d49b81a0377e774d315c8ae837d07561a7a1ccc9"
+  }
+}

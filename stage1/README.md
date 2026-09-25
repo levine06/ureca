@@ -19,6 +19,9 @@ stage1/
 └── datasets/
     ├── all_candidates.csv
     ├── filtered_candidates.csv
+    ├── review_queue.csv
+    ├── manual_inspection_sample.csv
+    ├── dataset_manifest.json
     ├── development.csv
     ├── validation.csv
     ├── test_a.csv
@@ -29,31 +32,46 @@ stage1/
 
 The main script is used to:
 
-1. Search RCSB PDB for pre- and post-cutoff structures.
-2. Retrieve structural and sequence metadata.
-3. Apply the benchmark filters.
-4. Assign RCSB 30% sequence-identity clusters.
-5. Determine whether post-cutoff clusters contain pre-cutoff structures.
-6. Construct cluster-disjoint development, validation, Test A, and Test B splits.
-7. Force-include two priority targets.
-8. Save the generated datasets as CSV files.
+1. Search RCSB PDB for pre- and post-cutoff single-chain structures.
+2. Retrieve structural and sequence metadata in batches from the RCSB GraphQL API.
+3. Retrieve UniProt annotations and check the OPM membrane-protein database.
+4. Screen every candidate against the Stage 1 biological restrictions.
+5. Assign RCSB 30% sequence-identity clusters.
+6. Determine whether post-cutoff clusters contain pre-cutoff structures.
+7. Construct cluster-disjoint development, validation, Test A, and Test B splits.
+8. Force-include two priority targets.
+9. Save the generated datasets, a manual review queue, and a random manual-inspection sample as CSV files.
 
 ---
 
 ## Initial Benchmark Criteria
 
-Standard benchmark candidates are restricted to proteins with:
+Every candidate is screened against the Stage 1 biological restrictions. Each criterion is recorded as `PASS`, `FLAG` (needs manual review), or `FAIL` in its own column:
 
-- sequence length between 80 and 400 residues;
-- at least 90% of the structure resolved;
-- resolution ≤ 3.5 Å;
-- X-ray diffraction or electron microscopy structures;
-- a monomeric biological assembly;
-- no detected membrane-protein annotation;
-- only the 20 standard amino-acid residues; and
-- an available RCSB 30% sequence cluster.
+| Column | FAIL when | FLAG when |
+|---|---|---|
+| `monomeric` | the preferred biological assembly (assembly 1) has more than one protein chain | assembly composition is unavailable, or another assembly is oligomeric |
+| `not_obligate_complex` | the assembly is not monomeric or contains DNA/RNA | the UniProt subunit annotation describes a homo-/hetero-oligomer or complex component |
+| `soluble` | UniProt annotates a lipid anchor, lipidation, or GPI anchor | UniProt subcellular location includes a membrane or the cell surface, or the UniProt entry could not be retrieved |
+| `not_membrane` | the entry is in OPM, is annotated by PDBTM/OPM/MemProtMD/mpstruc in RCSB, or a UniProt transmembrane segment lies inside the construct | the construct is a soluble domain whose transmembrane segment lies outside it, or OPM could not be reached |
+| `length_80_400` | the sequence is outside 80–400 residues | — |
+| `resolved_ge_0_90` | less than 90% of the chain is modelled (from the chain's RCSB unobserved-residue annotation) | — |
+| `structure_quality` | the method is not X-ray/EM, resolution is worse than 3.5 Å, or the sequence contains non-standard residues | — |
+| `not_heavily_disordered` | the chain is less than 90% resolved | a single unmodelled segment is longer than 20 residues, or UniProt disordered regions cover more than 20% of the construct |
+| `no_large_ligand` | a non-trivial ligand is ≥ 500 Da or has > 25 heavy atoms (e.g. heme, FAD, NAD) | a non-trivial ligand is ≥ 200 Da or has > 12 heavy atoms |
 
-The two priority proteins are deliberately force-included even when they do not satisfy all of the standard automated filters.
+Water, ions, buffers, cryoprotectants, and common crystallisation additives are ignored by the ligand check.
+
+The overall `screening_decision` is `EXCLUDE` if any criterion fails, `FLAG` if any criterion is flagged, and `INCLUDE` otherwise. Notes explaining each failure and flag are stored in `screening_notes` and `flag_reasons`.
+
+Candidates eligible for the splits (`passes_standard_filters`) must also have an RCSB 30% sequence cluster, and:
+
+- **Development / validation** (pre-cutoff): `INCLUDE` or `FLAG`, since these sets are used freely during method development.
+- **Test A / Test B** (post-cutoff): `INCLUDE` only, so the locked test sets contain no unreviewed exceptions.
+
+These choices are controlled by `ALLOW_FLAGGED_IN_DEV_VAL` and `ALLOW_FLAGGED_IN_TEST`.
+
+The two priority proteins are deliberately force-included even when they do not satisfy all of the standard automated filters. Their automated verdicts are kept and the override is recorded in `flag_reasons`.
 
 ---
 
@@ -150,7 +168,7 @@ Although BCCIPα has strong sequence similarity to the pre-cutoff BCCIPβ struct
 
 It is also one of the more interesting cases where the AlphaFold3 prediction differs substantially from the experimentally determined structure.
 
-For this reason, BCCIPα is included in Test B.
+For this reason, BCCIPα is pinned to Test B through `forced_split` in `PRIORITY_TARGETS`, regardless of its current 30% sequence cluster. The script raises an error if it is not placed there.
 
 ---
 
@@ -190,9 +208,11 @@ These targets are retained even if they fail one or more of the standard benchma
 
 ## Generated Dataset Files
 
+> **Note:** the committed CSV snapshot below was produced by the previous version of `build_dataset.py`, before the UniProt/OPM/ligand biological screen was added. Re-run the script to regenerate the datasets (including `review_queue.csv`, `manual_inspection_sample.csv`, and `dataset_manifest.json`) with the current filters.
+
 ### `all_candidates.csv`
 
-Contains all successfully retrieved pre- and post-cutoff candidates before the standard benchmark filters are applied.
+Contains all successfully retrieved pre- and post-cutoff candidates with their per-criterion screening verdicts, overall `screening_decision`, and `passes_standard_filters`.
 
 Current snapshot:
 
@@ -221,6 +241,24 @@ Current snapshot:
 
 ---
 
+### `review_queue.csv`
+
+Candidates with a `FLAG` decision, plus the priority targets, for manual review.
+
+---
+
+### `manual_inspection_sample.csv`
+
+A random subset of 20 automatically accepted, split-assigned proteins with empty `manual_verdict` and `manual_notes` columns. Inspect these by hand to confirm the filters behave sensibly.
+
+---
+
+### `dataset_manifest.json`
+
+Records the filter configuration, split sizes, and SHA-256 hashes of `development.csv`, `validation.csv`, `test_a.csv`, and `test_b.csv`, so any later change to a locked test set can be detected.
+
+---
+
 ### Final Dataset Sizes
 
 ```text
@@ -240,8 +278,8 @@ The current script uses the following settings:
 
 ```text
 Random seed:                  42
-Pre-cutoff candidates:        300
-Post-cutoff candidates:       700
+Pre-cutoff candidates:        500
+Post-cutoff candidates:       1200
 Maximum search hits:          5000
 
 Development set size:         30
@@ -257,6 +295,10 @@ Minimum length:               80 residues
 Maximum length:               400 residues
 Minimum resolved fraction:    0.90
 Maximum resolution:           3.5 Å
+Max unmodelled segment:       20 residues (flag)
+Max UniProt-disordered:       20% of construct (flag)
+Large ligand:                 ≥ 500 Da or > 25 heavy atoms (fail)
+Medium ligand:                ≥ 200 Da or > 12 heavy atoms (flag)
 ```
 
 Because RCSB metadata and sequence-cluster files may change over time, the committed CSV files should be treated as the saved benchmark snapshot used for the project.
@@ -278,6 +320,8 @@ The generated CSV files are automatically written to:
 ```text
 stage1/datasets/
 ```
+
+The script queries RCSB PDB, UniProt, and OPM, so it needs network access to `search.rcsb.org`, `data.rcsb.org`, `cdn.rcsb.org`, `rest.uniprot.org`, and `opm-assets.storage.googleapis.com`.
 
 The script requires the following Python packages:
 
