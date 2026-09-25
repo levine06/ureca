@@ -1,0 +1,8 @@
+openfold-3/
+stage0/
+results/
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+.DS_Store
+reference_structures/
