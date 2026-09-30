@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+# third-party rotamer library is not redistributed here (ODC-BY, ~80 MB); point DunbrackLibrary at your copy
+*.bbdep.rotamers.lib
