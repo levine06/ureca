@@ -195,6 +195,21 @@ OBLIGATE_COMPLEX_PATTERN = re.compile(
     re.I,
 )
 
+# Common expression/purification tags, searched for within TAG_WINDOW
+# residues of either terminus.
+EXPRESSION_TAGS = {
+    "poly-His": re.compile(r"H{5,}"),
+    "Strep-tag II": re.compile("WSHPQFEK"),
+    "FLAG": re.compile("DYKDDDDK"),
+    "HA": re.compile("YPYDVPDYA"),
+    "c-Myc": re.compile("EQKLISEEDL"),
+    "V5": re.compile("GKPIPNPLLGLDST"),
+    "AviTag": re.compile("GLNDIFEAQKIEWHE"),
+    "S-tag": re.compile("KETAAAKFERQHMDS"),
+    "T7": re.compile("MASMTGGQQMG"),
+}
+TAG_WINDOW = 30
+
 
 # ============================================================
 # URLS
@@ -451,6 +466,10 @@ query GetEntries($ids: [String!]!) {
             nonpolymer_comp {
                 chem_comp { id name formula formula_weight }
             }
+        }
+        branched_entities {
+            rcsb_branched_entity { pdbx_description formula_weight }
+            rcsb_branched_entity_container_identifiers { chem_comp_monomers }
         }
     }
 }
@@ -737,14 +756,7 @@ def extract_metadata(
         if oligomeric_details:
             biological_assembly += f" ({oligomeric_details.lower()})"
 
-    ligand_ids = [
-        comp["id"]
-        for comp in (
-            (ligand.get("nonpolymer_comp") or {}).get("chem_comp") or {}
-            for ligand in entry.get("nonpolymer_entities") or []
-        )
-        if comp.get("id") and comp["id"] not in TRIVIAL_LIGANDS
-    ]
+    ligand_ids = [ligand["id"] for ligand in entry_ligands(entry)]
 
     return {
         "pdb_id": pdb_id,
@@ -1061,18 +1073,23 @@ def count_heavy_atoms(formula: str) -> int:
     return total
 
 
-def classify_ligands(nonpolymer_entities: list):
+def to_float(value) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def entry_ligands(entry: dict) -> list[dict]:
     """
-    Classify non-polymer ligands by molecular weight and heavy-atom count,
-    ignoring buffers, ions, and crystallisation additives.
-
-    Returns (verdict, notes) where verdict is PASS / FLAG / FAIL.
+    Non-trivial ligands of an entry as {id, description, weight (Da),
+    heavy_atoms}: small molecules (excluding buffers, ions, and
+    crystallisation additives) plus oligosaccharides.
     """
 
-    verdict = "PASS"
-    notes = []
+    ligands = []
 
-    for ligand in nonpolymer_entities or []:
+    for ligand in entry.get("nonpolymer_entities") or []:
 
         comp = (ligand.get("nonpolymer_comp") or {}).get("chem_comp") or {}
         ccd = comp.get("id") or ""
@@ -1080,17 +1097,63 @@ def classify_ligands(nonpolymer_entities: list):
         if not ccd or ccd in TRIVIAL_LIGANDS:
             continue
 
-        try:
-            weight = float(comp.get("formula_weight") or 0.0)
-        except (TypeError, ValueError):
-            weight = 0.0
-
+        weight = to_float(comp.get("formula_weight"))
         heavy_atoms = count_heavy_atoms(comp.get("formula") or "")
 
-        description = (
-            f"{ccd} ({comp.get('name', '')}; "
-            f"{weight:.0f} Da; {heavy_atoms} heavy atoms)"
+        ligands.append(
+            {
+                "id": ccd,
+                "description": (
+                    f"{ccd} ({comp.get('name', '')}; "
+                    f"{weight:.0f} Da; {heavy_atoms} heavy atoms)"
+                ),
+                "weight": weight,
+                "heavy_atoms": heavy_atoms,
+            }
         )
+
+    # Bound sugars and glycans are separate "branched" entities in RCSB,
+    # not chemical components, so they never appear among the non-polymer
+    # entities. Their formula_weight is in kDa and no formula is given, so
+    # they are judged on weight alone.
+    for branched in entry.get("branched_entities") or []:
+
+        info = branched.get("rcsb_branched_entity") or {}
+        monomers = (
+            branched.get("rcsb_branched_entity_container_identifiers") or {}
+        ).get("chem_comp_monomers") or []
+
+        ligand_id = f"oligosaccharide({'/'.join(sorted(monomers))})"
+        weight = to_float(info.get("formula_weight")) * 1000
+
+        ligands.append(
+            {
+                "id": ligand_id,
+                "description": f"{ligand_id} ({weight:.0f} Da)",
+                "weight": weight,
+                "heavy_atoms": 0,
+            }
+        )
+
+    return ligands
+
+
+def classify_ligands(entry: dict):
+    """
+    Classify an entry's non-trivial ligands by molecular weight and
+    heavy-atom count.
+
+    Returns (verdict, notes) where verdict is PASS / FLAG / FAIL.
+    """
+
+    verdict = "PASS"
+    notes = []
+
+    for ligand in entry_ligands(entry):
+
+        weight = ligand["weight"]
+        heavy_atoms = ligand["heavy_atoms"]
+        description = ligand["description"]
 
         if weight >= LARGE_LIGAND_MW or heavy_atoms > LARGE_LIGAND_HEAVY_ATOMS:
             notes.append(f"large ligand {description}")
@@ -1119,7 +1182,7 @@ CRITERIA = [
     "not_membrane",
     "length_80_400",
     "sequence_length_consistent",
-    "no_terminal_his_tag",
+    "no_terminal_tag",
     "resolved_ge_0_90",
     "structure_quality",
     "not_heavily_disordered",
@@ -1346,15 +1409,19 @@ def screen_candidate(
             f"!= metadata length {row['length']}",
         )
 
-    verdicts["no_terminal_his_tag"] = "PASS"
+    verdicts["no_terminal_tag"] = "PASS"
 
-    if (
-        re.search(r"H{5,}", sequence[:30])
-        or re.search(r"H{5,}", sequence[-30:])
-    ):
+    termini = (sequence[:TAG_WINDOW], sequence[-TAG_WINDOW:])
+    tags = [
+        name
+        for name, pattern in EXPRESSION_TAGS.items()
+        if any(pattern.search(terminus) for terminus in termini)
+    ]
+
+    if tags:
         flag(
-            "no_terminal_his_tag",
-            "possible terminal poly-His expression tag",
+            "no_terminal_tag",
+            "possible terminal expression tag: " + ", ".join(tags),
         )
 
     # --------------------------------------------------------
@@ -1448,9 +1515,7 @@ def screen_candidate(
     # Not dependent on large ligands
     # --------------------------------------------------------
 
-    ligand_verdict, ligand_notes = classify_ligands(
-        entry.get("nonpolymer_entities") or []
-    )
+    ligand_verdict, ligand_notes = classify_ligands(entry)
 
     verdicts["no_large_ligand"] = ligand_verdict
 

@@ -32,7 +32,7 @@ stage1/
 
 The main script is used to:
 
-1. Search RCSB PDB for pre- and post-cutoff single-chain structures.
+1. Search RCSB PDB for all pre- and post-cutoff single-chain structures, then draw a seeded random sample from each side.
 2. Retrieve structural and sequence metadata in batches from the RCSB GraphQL API.
 3. Retrieve UniProt annotations and check the OPM membrane-protein database.
 4. Screen every candidate against the Stage 1 biological restrictions.
@@ -52,15 +52,19 @@ Every candidate is screened against the Stage 1 biological restrictions. Each cr
 |---|---|---|
 | `monomeric` | the preferred biological assembly (assembly 1) has more than one protein chain | assembly composition is unavailable, or another assembly is oligomeric |
 | `not_obligate_complex` | the assembly is not monomeric or contains DNA/RNA | the UniProt subunit annotation describes a homo-/hetero-oligomer or complex component |
-| `soluble` | UniProt annotates a lipid anchor, lipidation, or GPI anchor | UniProt subcellular location includes a membrane or the cell surface, or the UniProt entry could not be retrieved |
-| `not_membrane` | the entry is in OPM, is annotated by PDBTM/OPM/MemProtMD/mpstruc in RCSB, or a UniProt transmembrane segment lies inside the construct | the construct is a soluble domain whose transmembrane segment lies outside it, or OPM could not be reached |
+| `soluble` | a UniProt lipidation or GPI-anchor site lies inside the construct | a lipidation/GPI site lies outside the construct or its position cannot be checked (e.g. keyword-only evidence), UniProt subcellular location includes a membrane or the cell surface, or the UniProt entry could not be retrieved |
+| `not_membrane` | the entry is in OPM, is annotated by PDBTM/OPM/MemProtMD/mpstruc in RCSB, or a UniProt transmembrane segment lies inside the construct (or its position cannot be checked against the construct) | the construct is a soluble domain whose transmembrane segment lies outside it, or OPM could not be reached |
 | `length_80_400` | the sequence is outside 80–400 residues | — |
-| `resolved_ge_0_90` | less than 90% of the chain is modelled (from the chain's RCSB unobserved-residue annotation) | — |
-| `structure_quality` | the method is not X-ray/EM, resolution is worse than 3.5 Å, or the sequence contains non-standard residues | — |
+| `sequence_length_consistent` | — | the sequence string length differs from the RCSB sequence length |
+| `no_terminal_tag` | — | a common expression tag (poly-His, Strep-tag II, FLAG, HA, c-Myc, V5, AviTag, S-tag, T7) lies within 30 residues of either terminus |
+| `resolved_ge_0_90` | less than 90% of the chain is modelled (from the chain's RCSB unobserved-residue annotation), or the resolved fraction cannot be determined | — |
+| `structure_quality` | any listed experimental method is not X-ray/EM (multi-method entries are checked method by method), resolution is worse than 3.5 Å or unavailable, or the sequence contains non-standard residues | — |
 | `not_heavily_disordered` | the chain is less than 90% resolved | a single unmodelled segment is longer than 20 residues, or UniProt disordered regions cover more than 20% of the construct |
 | `no_large_ligand` | a non-trivial ligand is ≥ 500 Da or has > 25 heavy atoms (e.g. heme, FAD, NAD) | a non-trivial ligand is ≥ 200 Da or has > 12 heavy atoms |
 
-Water, ions, buffers, cryoprotectants, and common crystallisation additives are ignored by the ligand check.
+Water, ions, buffers, cryoprotectants, common crystallisation additives, and common modified amino acids (e.g. selenomethionine) are ignored by the ligand check. Because metal ions are ignored, a protein whose fold depends on a bound metal is not caught by the screen.
+
+The ligand check also covers oligosaccharides: bound sugars and covalently attached glycans. RCSB stores these separately from small-molecule ligands. They are judged on weight alone (no formula is available) and appear in the `ligands` column as, for example, `oligosaccharide(NAG)`. A glycosylated protein whose glycan is ≥ 500 Da therefore fails like any other large-ligand case.
 
 The overall `screening_decision` is `EXCLUDE` if any criterion fails, `FLAG` if any criterion is flagged, and `INCLUDE` otherwise. Notes explaining each failure and flag are stored in `screening_notes` and `flag_reasons`.
 
@@ -242,6 +246,8 @@ These targets are retained even if they fail one or more of the standard benchma
 
 ## Generated Dataset Files
 
+The CSV files in `datasets/` are the snapshot produced by the current `build_dataset.py` on 2 October 2026, using the RCSB 30% cluster file dated 27 September 2026.
+
 ### `all_candidates.csv`
 
 Contains all successfully retrieved pre- and post-cutoff candidates with their per-criterion screening verdicts, overall `screening_decision`, and `passes_standard_filters`.
@@ -249,13 +255,13 @@ Contains all successfully retrieved pre- and post-cutoff candidates with their p
 Current snapshot:
 
 ```text
-1702 candidates  (500 pre-cutoff + 1200 post-cutoff + 2 priority targets)
+2502 candidates  (500 pre-cutoff + 2000 post-cutoff + 2 priority targets)
 
                     INCLUDE   FLAG   EXCLUDE
-pre-cutoff              118     75       307
-post-cutoff             135    284       781
+pre-cutoff               68    108       324
+post-cutoff             225    490      1285
 priority targets          0      0         2
-total                   253    359      1090
+total                   293    598      1611
 ```
 
 ---
@@ -274,7 +280,11 @@ It also records information used during split construction, including:
 Current snapshot:
 
 ```text
-255 candidates  (253 passing the standard filters + 2 priority targets)
+295 candidates  (293 passing the standard filters + 2 priority targets)
+
+post-cutoff Test A / Test B search:
+  similar_hit       189   (eligible for Test A)
+  no_similar_hit     38   (eligible for Test B)
 ```
 
 ---
@@ -283,19 +293,21 @@ Current snapshot:
 
 Candidates with a `FLAG` decision, plus the priority targets, for manual review.
 
-Current snapshot: 361 rows (359 flagged candidates + 2 priority targets).
+Current snapshot: 600 rows (598 flagged candidates + 2 priority targets).
 
 ---
 
 ### `manual_inspection_sample.csv`
 
-A random subset of 20 automatically accepted, split-assigned proteins with empty `manual_verdict` and `manual_notes` columns. Inspect these by hand to confirm the filters behave sensibly.
+A random subset of 20 automatically accepted, split-assigned proteins. The script writes empty `manual_verdict` and `manual_notes` columns, which are filled in by hand to confirm the filters behave sensibly.
 
 ---
 
 ### `dataset_manifest.json`
 
 Records the filter configuration (including the Test A / Test B identity and coverage thresholds), split sizes, and SHA-256 hashes of `development.csv`, `validation.csv`, `test_a.csv`, and `test_b.csv`, so any later change to a locked test set can be detected.
+
+It also records the build date and the URL and `Last-Modified` date of the RCSB 30% cluster file used, since both the PDB and the cluster file change over time and the hashes are only reproducible against the same inputs.
 
 ---
 
@@ -321,8 +333,8 @@ The current script uses the following settings:
 ```text
 Random seed:                  42
 Pre-cutoff candidates:        500
-Post-cutoff candidates:       1200
-Maximum search hits:          5000
+Post-cutoff candidates:       2000
+Maximum search hits:          None (complete result set)
 
 Development set size:         30
 Validation set size:          15
@@ -350,6 +362,10 @@ Minimum identity (Test A):    30%
 Minimum coverage (Test A):    80% of the post-cutoff protein
 Search hits inspected:        1000 per protein
 ```
+
+The candidate search retrieves the complete RCSB result set before sampling. RCSB returns hits in a fixed order that front-loads the oldest entries, so capping the search (as an earlier version did at 5000 hits) biases the sample: the pre-cutoff candidates all came from 1988–2004. `MAX_SEARCH_HITS` should only be set to an integer for quick test runs.
+
+2000 post-cutoff candidates are sampled because the 30/80 rule leaves relatively few Test B candidates: with 1200, only 17 distinct Test B proteins remained after removing cluster and UniProt duplicates.
 
 Because RCSB metadata, sequence-cluster files, and sequence-search results may change over time, the committed CSV files should be treated as the saved benchmark snapshot used for the project.
 

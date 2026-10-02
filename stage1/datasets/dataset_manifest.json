@@ -1,5 +1,5 @@
 {
-  "build_date": "2026-10-02T04:37:14+00:00",
+  "build_date": "2026-10-02T05:20:12+00:00",
   "sequence_cluster_url": "https://cdn.rcsb.org/resources/sequence/clusters/clusters-by-entity-30.txt",
   "sequence_cluster_snapshot": "Sun, 27 Sep 2026 14:04:07 GMT",
   "cutoff_date": "2021-09-30",
@@ -50,9 +50,9 @@
     "test_b": 20
   },
   "sha256": {
-    "development": "b69d0597a1c6bd5fee7b11a063176b2d455fc18fac47e4028174bfcb3f289a84",
-    "validation": "e56e91b20333d5dc4476a0aad488b819d41eb091972667d41a8c97c4d8afa405",
-    "test_a": "533d4cda6af49ba9fe57e1a0584aca2811d057472b8340c7a3cf1ccda156fdba",
-    "test_b": "dbc97f29ec8889f5ac8422ac2ef1f02811de650f699c4bd23c8c59b0ca9727f1"
+    "development": "f5f636ddab9a280464ca0514e489794f54e2228f342ade8e126b514f3f96ebe6",
+    "validation": "aadb9cdd2d2c5938877e263d169289f1a23f00c0a1d272f1f09cbb88b7924e9a",
+    "test_a": "8fa3861b87c067121b659cc0448575de050b1d1b538a133fff73e4b5f75cf21b",
+    "test_b": "a68aa43cbdf2434cf91ca98061fe9acc05e5194032e6ed63b256768ddd10b6ce"
   }
 }
