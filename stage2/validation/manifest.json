@@ -1,0 +1,27 @@
+{
+  "cutoff_exclusive": "2021-09-30",
+  "policy": "Exclude these fixtures from final evaluation; Stage 1 split is pending.",
+  "structures": [
+    {
+      "pdb_id": "1UBQ",
+      "release_date": "1987-04-16",
+      "sha256": "d4a6812d8951cf6594e6a0763f089e35f5a80b62acb3c117b2c5565228a7b161",
+      "role": "development_only",
+      "chain": "A"
+    },
+    {
+      "pdb_id": "1CRN",
+      "release_date": "1981-07-28",
+      "sha256": "42199a30a0701864a2a5cc76cd7f35cc544cd0e65fbcf63e03c166543249b811",
+      "role": "development_only",
+      "chain": "A"
+    },
+    {
+      "pdb_id": "1LYZ",
+      "release_date": "1977-04-12",
+      "sha256": "28e95e819d4e0fc48acdf44209e37ba06f5c9d5d93d9950d67a760b32964326e",
+      "role": "development_only",
+      "chain": "A"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+pdb_id,residue,label,reason
+1UBQ,15,buried,User manually inspected in PyMOL and reported that residue 15 looks buried
+1UBQ,48,exposed,User manually inspected in PyMOL and reported that residue 48 looks exposed
+1UBQ,23,buried,User manually inspected in PyMOL and reported that residue 23 looks buried
+1UBQ,63,exposed,User manually inspected in PyMOL and reported that residue 63 looks exposed
+1UBQ,3,buried,User manually inspected in PyMOL and reported that residue 3 looks buried
+1UBQ,76,exposed,User manually inspected in PyMOL and reported that residue 76 looks exposed
+1CRN,13,buried,Initially ambiguous; after reinspection user explicitly classified buried overall with a small exposed portion; reclassification occurred after accessibility scores were disclosed
+1CRN,26,buried,User manually inspected in PyMOL and reported that residue 26 is definitely buried
+1CRN,17,exposed,User manually inspected in PyMOL and reported that residue 17 looks exposed
+1CRN,32,buried,Initially ambiguous; after reinspection user explicitly classified buried overall with a small exposed portion; reclassification occurred after accessibility scores were disclosed
+1CRN,7,exposed,User manually inspected in PyMOL and reported that residue 7 looks exposed
+1CRN,16,exposed,User initially reported exposed then suggested a valley during screenshot reinspection; original visual label retained
+1CRN,4,buried,User manually inspected in PyMOL and reported that residue 4 looks buried
+1CRN,40,exposed,User manually inspected in PyMOL and reported that residue 40 looks exposed
+1CRN,30,exposed,User initially reported exposed then supplied multiple reinspection views showing apparent exposure with a possible valley; original visual label retained
+1CRN,3,ambiguous,User manually inspected in PyMOL and observed mostly buried with a tiny exposed part
+1CRN,33,exposed,User manually inspected in PyMOL and reported that residue 33 looks exposed
+1CRN,12,exposed,User manually inspected in PyMOL and reported that residue 12 looks exposed
+1LYZ,2,exposed,User confirmed lysozyme was loaded then reinspected residue 2 in PyMOL and reported exposed
+1LYZ,56,buried,User inspected surrounding atoms in PyMOL from multiple angles and confirmed residue 56 is buried
+1LYZ,97,exposed,User manually inspected in PyMOL and reported that residue 97 looks exposed
+1LYZ,108,exposed,User initially reported exposed then reinspected and suggested a groove or valley; original visual label retained
+1LYZ,98,exposed,User initially reported exposed then reinspected and confirmed a narrow groove appearance with a screenshot; original visual label retained
+1LYZ,25,exposed,User confirmed visual exposure then suggested a narrow groove limits access by larger probes; original label retained
+1LYZ,99,ambiguous,User inspected neighbouring atom spheres in PyMOL and described residue 99 as partially exposed
+1LYZ,55,ambiguous,User inspected neighbouring atom spheres in PyMOL and described residue 55 as mostly buried
+1LYZ,29,buried,User inspected neighbouring atom spheres in PyMOL and reported that residue 29 looks buried
+1LYZ,75,exposed,User inspected neighbouring atom spheres in PyMOL and reported that residue 75 looks exposed
+1LYZ,92,ambiguous,User inspected neighbouring atom spheres in PyMOL and described residue 92 as mostly buried with very slight exposure
+1CRN,46,exposed,User inspected neighbouring atom spheres in PyMOL and reported that residue 46 looks exposed
+1CRN,10,exposed,User inspected neighbouring atom spheres in PyMOL and reported that residue 10 looks exposed
+1CRN,23,exposed,User inspected neighbouring atom spheres in PyMOL and reported that residue 23 looks exposed
+1CRN,18,exposed,User inspected neighbouring atom spheres in PyMOL and reported that residue 18 looks exposed
+1CRN,24,exposed,User inspected whole-protein atom spheres and described residue 24 as mostly exposed with partial obstruction from one viewing angle
+1CRN,6,exposed,User inspected whole-protein atom spheres in PyMOL and described residue 6 as mostly exposed
+1LYZ,17,buried,User reported lysozyme residue 17 as buried during manual inspection

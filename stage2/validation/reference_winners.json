@@ -1,0 +1,642 @@
+[
+  {
+    "name": "ALA",
+    "probe": 1.4,
+    "file": "reference_conformers/ALA_1.4.pdb",
+    "stored_max_A2": 130.53855844115446,
+    "recomputed_max_A2": 130.53855844115446,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ARG",
+    "probe": 1.4,
+    "file": "reference_conformers/ARG_1.4.pdb",
+    "stored_max_A2": 265.43431488400466,
+    "recomputed_max_A2": 265.43431488400466,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ASN",
+    "probe": 1.4,
+    "file": "reference_conformers/ASN_1.4.pdb",
+    "stored_max_A2": 186.41428977087685,
+    "recomputed_max_A2": 186.41428977087688,
+    "relative_at_winner": 1.0000000000000002
+  },
+  {
+    "name": "ASP",
+    "probe": 1.4,
+    "file": "reference_conformers/ASP_1.4.pdb",
+    "stored_max_A2": 184.65051671710552,
+    "recomputed_max_A2": 184.65051671710546,
+    "relative_at_winner": 0.9999999999999997
+  },
+  {
+    "name": "CYS",
+    "probe": 1.4,
+    "file": "reference_conformers/CYS_1.4.pdb",
+    "stored_max_A2": 165.1841804550195,
+    "recomputed_max_A2": 165.1841804550195,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "GLN",
+    "probe": 1.4,
+    "file": "reference_conformers/GLN_1.4.pdb",
+    "stored_max_A2": 215.41396826238977,
+    "recomputed_max_A2": 215.41396826238977,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "GLU",
+    "probe": 1.4,
+    "file": "reference_conformers/GLU_1.4.pdb",
+    "stored_max_A2": 213.4797679540635,
+    "recomputed_max_A2": 213.47976795406348,
+    "relative_at_winner": 0.9999999999999999
+  },
+  {
+    "name": "GLY",
+    "probe": 1.4,
+    "file": "reference_conformers/GLY_1.4.pdb",
+    "stored_max_A2": 105.42359020738715,
+    "recomputed_max_A2": 105.42359020738715,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "HIS",
+    "probe": 1.4,
+    "file": "reference_conformers/HIS_1.4.pdb",
+    "stored_max_A2": 216.558083779398,
+    "recomputed_max_A2": 216.558083779398,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ILE",
+    "probe": 1.4,
+    "file": "reference_conformers/ILE_1.4.pdb",
+    "stored_max_A2": 198.94160121510134,
+    "recomputed_max_A2": 198.94160121510134,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "LEU",
+    "probe": 1.4,
+    "file": "reference_conformers/LEU_1.4.pdb",
+    "stored_max_A2": 201.4999485217565,
+    "recomputed_max_A2": 201.4999485217565,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "LYS",
+    "probe": 1.4,
+    "file": "reference_conformers/LYS_1.4.pdb",
+    "stored_max_A2": 227.2487319424122,
+    "recomputed_max_A2": 227.2487319424122,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "MET",
+    "probe": 1.4,
+    "file": "reference_conformers/MET_1.4.pdb",
+    "stored_max_A2": 220.58092358293663,
+    "recomputed_max_A2": 220.5809235829366,
+    "relative_at_winner": 0.9999999999999999
+  },
+  {
+    "name": "PHE",
+    "probe": 1.4,
+    "file": "reference_conformers/PHE_1.4.pdb",
+    "stored_max_A2": 238.49075826745639,
+    "recomputed_max_A2": 238.49075826745639,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "PRO",
+    "probe": 1.4,
+    "file": "reference_conformers/PRO_1.4.pdb",
+    "stored_max_A2": 157.20989693391513,
+    "recomputed_max_A2": 157.20989693391513,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "SER",
+    "probe": 1.4,
+    "file": "reference_conformers/SER_1.4.pdb",
+    "stored_max_A2": 147.90665676282555,
+    "recomputed_max_A2": 147.90665676282555,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "THR",
+    "probe": 1.4,
+    "file": "reference_conformers/THR_1.4.pdb",
+    "stored_max_A2": 169.35625684234606,
+    "recomputed_max_A2": 169.35625684234606,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "TRP",
+    "probe": 1.4,
+    "file": "reference_conformers/TRP_1.4.pdb",
+    "stored_max_A2": 279.48466743076057,
+    "recomputed_max_A2": 279.48466743076057,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "TYR",
+    "probe": 1.4,
+    "file": "reference_conformers/TYR_1.4.pdb",
+    "stored_max_A2": 255.3260792945445,
+    "recomputed_max_A2": 255.3260792945445,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "VAL",
+    "probe": 1.4,
+    "file": "reference_conformers/VAL_1.4.pdb",
+    "stored_max_A2": 175.478082788006,
+    "recomputed_max_A2": 175.478082788006,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ALA",
+    "probe": 2.5,
+    "file": "reference_conformers/ALA_2.5.pdb",
+    "stored_max_A2": 194.56897020232677,
+    "recomputed_max_A2": 194.56897020232677,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ARG",
+    "probe": 2.5,
+    "file": "reference_conformers/ARG_2.5.pdb",
+    "stored_max_A2": 374.1452667644623,
+    "recomputed_max_A2": 374.1452667644623,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ASN",
+    "probe": 2.5,
+    "file": "reference_conformers/ASN_2.5.pdb",
+    "stored_max_A2": 269.0244601154354,
+    "recomputed_max_A2": 269.02446011543543,
+    "relative_at_winner": 1.0000000000000002
+  },
+  {
+    "name": "ASP",
+    "probe": 2.5,
+    "file": "reference_conformers/ASP_2.5.pdb",
+    "stored_max_A2": 266.5781398665242,
+    "recomputed_max_A2": 266.5781398665243,
+    "relative_at_winner": 1.0000000000000002
+  },
+  {
+    "name": "CYS",
+    "probe": 2.5,
+    "file": "reference_conformers/CYS_2.5.pdb",
+    "stored_max_A2": 241.05295792068705,
+    "recomputed_max_A2": 241.05295792068705,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "GLN",
+    "probe": 2.5,
+    "file": "reference_conformers/GLN_2.5.pdb",
+    "stored_max_A2": 308.085719283556,
+    "recomputed_max_A2": 308.085719283556,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "GLU",
+    "probe": 2.5,
+    "file": "reference_conformers/GLU_2.5.pdb",
+    "stored_max_A2": 305.3586846620211,
+    "recomputed_max_A2": 305.3586846620211,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "GLY",
+    "probe": 2.5,
+    "file": "reference_conformers/GLY_2.5.pdb",
+    "stored_max_A2": 158.32318890309824,
+    "recomputed_max_A2": 158.32318890309824,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "HIS",
+    "probe": 2.5,
+    "file": "reference_conformers/HIS_2.5.pdb",
+    "stored_max_A2": 307.9869366777847,
+    "recomputed_max_A2": 307.9869366777847,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ILE",
+    "probe": 2.5,
+    "file": "reference_conformers/ILE_2.5.pdb",
+    "stored_max_A2": 284.8639885084959,
+    "recomputed_max_A2": 284.8639885084959,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "LEU",
+    "probe": 2.5,
+    "file": "reference_conformers/LEU_2.5.pdb",
+    "stored_max_A2": 287.17089932676686,
+    "recomputed_max_A2": 287.17089932676686,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "LYS",
+    "probe": 2.5,
+    "file": "reference_conformers/LYS_2.5.pdb",
+    "stored_max_A2": 323.9694280197676,
+    "recomputed_max_A2": 323.9694280197676,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "MET",
+    "probe": 2.5,
+    "file": "reference_conformers/MET_2.5.pdb",
+    "stored_max_A2": 314.49732774620236,
+    "recomputed_max_A2": 314.49732774620236,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "PHE",
+    "probe": 2.5,
+    "file": "reference_conformers/PHE_2.5.pdb",
+    "stored_max_A2": 335.8134899343987,
+    "recomputed_max_A2": 335.8134899343987,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "PRO",
+    "probe": 2.5,
+    "file": "reference_conformers/PRO_2.5.pdb",
+    "stored_max_A2": 231.54315715297798,
+    "recomputed_max_A2": 231.54315715297798,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "SER",
+    "probe": 2.5,
+    "file": "reference_conformers/SER_2.5.pdb",
+    "stored_max_A2": 217.7374864190736,
+    "recomputed_max_A2": 217.7374864190736,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "THR",
+    "probe": 2.5,
+    "file": "reference_conformers/THR_2.5.pdb",
+    "stored_max_A2": 246.228152884782,
+    "recomputed_max_A2": 246.228152884782,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "TRP",
+    "probe": 2.5,
+    "file": "reference_conformers/TRP_2.5.pdb",
+    "stored_max_A2": 389.2594883730935,
+    "recomputed_max_A2": 389.2594883730935,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "TYR",
+    "probe": 2.5,
+    "file": "reference_conformers/TYR_2.5.pdb",
+    "stored_max_A2": 358.0980769607165,
+    "recomputed_max_A2": 358.0980769607165,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "VAL",
+    "probe": 2.5,
+    "file": "reference_conformers/VAL_2.5.pdb",
+    "stored_max_A2": 254.20817081778887,
+    "recomputed_max_A2": 254.20817081778887,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ALA",
+    "probe": 4.0,
+    "file": "reference_conformers/ALA_4.pdb",
+    "stored_max_A2": 300.2352000616769,
+    "recomputed_max_A2": 300.2352000616769,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ARG",
+    "probe": 4.0,
+    "file": "reference_conformers/ARG_4.pdb",
+    "stored_max_A2": 546.0494042577151,
+    "recomputed_max_A2": 546.0494042577151,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ASN",
+    "probe": 4.0,
+    "file": "reference_conformers/ASN_4.pdb",
+    "stored_max_A2": 404.5552006689686,
+    "recomputed_max_A2": 404.5552006689686,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ASP",
+    "probe": 4.0,
+    "file": "reference_conformers/ASP_4.pdb",
+    "stored_max_A2": 401.5669202501481,
+    "recomputed_max_A2": 401.5669202501481,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "CYS",
+    "probe": 4.0,
+    "file": "reference_conformers/CYS_4.pdb",
+    "stored_max_A2": 365.8399919528795,
+    "recomputed_max_A2": 365.8399919528795,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "GLN",
+    "probe": 4.0,
+    "file": "reference_conformers/GLN_4.pdb",
+    "stored_max_A2": 459.33812836582115,
+    "recomputed_max_A2": 459.33812836582115,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "GLU",
+    "probe": 4.0,
+    "file": "reference_conformers/GLU_4.pdb",
+    "stored_max_A2": 455.8834254874913,
+    "recomputed_max_A2": 455.8834254874913,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "GLY",
+    "probe": 4.0,
+    "file": "reference_conformers/GLY_4.pdb",
+    "stored_max_A2": 248.09250704328707,
+    "recomputed_max_A2": 248.09250704328707,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "HIS",
+    "probe": 4.0,
+    "file": "reference_conformers/HIS_4.pdb",
+    "stored_max_A2": 457.55123004852675,
+    "recomputed_max_A2": 457.55123004852675,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ILE",
+    "probe": 4.0,
+    "file": "reference_conformers/ILE_4.pdb",
+    "stored_max_A2": 426.2699716516361,
+    "recomputed_max_A2": 426.2699716516362,
+    "relative_at_winner": 1.0000000000000002
+  },
+  {
+    "name": "LEU",
+    "probe": 4.0,
+    "file": "reference_conformers/LEU_4.pdb",
+    "stored_max_A2": 427.60540576301827,
+    "recomputed_max_A2": 427.60540576301827,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "LYS",
+    "probe": 4.0,
+    "file": "reference_conformers/LYS_4.pdb",
+    "stored_max_A2": 480.2174662955346,
+    "recomputed_max_A2": 480.2174662955347,
+    "relative_at_winner": 1.0000000000000002
+  },
+  {
+    "name": "MET",
+    "probe": 4.0,
+    "file": "reference_conformers/MET_4.pdb",
+    "stored_max_A2": 467.65436821541095,
+    "recomputed_max_A2": 467.65436821541095,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "PHE",
+    "probe": 4.0,
+    "file": "reference_conformers/PHE_4.pdb",
+    "stored_max_A2": 493.8820854254871,
+    "recomputed_max_A2": 493.8820854254871,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "PRO",
+    "probe": 4.0,
+    "file": "reference_conformers/PRO_4.pdb",
+    "stored_max_A2": 354.2971130179837,
+    "recomputed_max_A2": 354.2971130179837,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "SER",
+    "probe": 4.0,
+    "file": "reference_conformers/SER_4.pdb",
+    "stored_max_A2": 332.83768075876696,
+    "recomputed_max_A2": 332.83768075876696,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "THR",
+    "probe": 4.0,
+    "file": "reference_conformers/THR_4.pdb",
+    "stored_max_A2": 372.45942317840985,
+    "recomputed_max_A2": 372.45942317840985,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "TRP",
+    "probe": 4.0,
+    "file": "reference_conformers/TRP_4.pdb",
+    "stored_max_A2": 567.3234699839993,
+    "recomputed_max_A2": 567.3234699839993,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "TYR",
+    "probe": 4.0,
+    "file": "reference_conformers/TYR_4.pdb",
+    "stored_max_A2": 524.1175282368455,
+    "recomputed_max_A2": 524.1175282368455,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "VAL",
+    "probe": 4.0,
+    "file": "reference_conformers/VAL_4.pdb",
+    "stored_max_A2": 383.45310962011683,
+    "recomputed_max_A2": 383.45310962011683,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ALA",
+    "probe": 6.0,
+    "file": "reference_conformers/ALA_6.pdb",
+    "stored_max_A2": 472.5632258658384,
+    "recomputed_max_A2": 472.5632258658384,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ARG",
+    "probe": 6.0,
+    "file": "reference_conformers/ARG_6.pdb",
+    "stored_max_A2": 824.9716862654335,
+    "recomputed_max_A2": 824.9716862654335,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ASN",
+    "probe": 6.0,
+    "file": "reference_conformers/ASN_6.pdb",
+    "stored_max_A2": 626.5638028120918,
+    "recomputed_max_A2": 626.5638028120917,
+    "relative_at_winner": 0.9999999999999998
+  },
+  {
+    "name": "ASP",
+    "probe": 6.0,
+    "file": "reference_conformers/ASP_6.pdb",
+    "stored_max_A2": 621.5093916554396,
+    "recomputed_max_A2": 621.5093916554397,
+    "relative_at_winner": 1.0000000000000002
+  },
+  {
+    "name": "CYS",
+    "probe": 6.0,
+    "file": "reference_conformers/CYS_6.pdb",
+    "stored_max_A2": 569.184861997623,
+    "recomputed_max_A2": 569.184861997623,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "GLN",
+    "probe": 6.0,
+    "file": "reference_conformers/GLN_6.pdb",
+    "stored_max_A2": 703.4960013485222,
+    "recomputed_max_A2": 703.4960013485222,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "GLU",
+    "probe": 6.0,
+    "file": "reference_conformers/GLU_6.pdb",
+    "stored_max_A2": 698.3446138762109,
+    "recomputed_max_A2": 698.3446138762109,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "GLY",
+    "probe": 6.0,
+    "file": "reference_conformers/GLY_6.pdb",
+    "stored_max_A2": 395.52458501809235,
+    "recomputed_max_A2": 395.52458501809235,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "HIS",
+    "probe": 6.0,
+    "file": "reference_conformers/HIS_6.pdb",
+    "stored_max_A2": 700.0889526608362,
+    "recomputed_max_A2": 700.0889526608362,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "ILE",
+    "probe": 6.0,
+    "file": "reference_conformers/ILE_6.pdb",
+    "stored_max_A2": 657.3452236390362,
+    "recomputed_max_A2": 657.3452236390362,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "LEU",
+    "probe": 6.0,
+    "file": "reference_conformers/LEU_6.pdb",
+    "stored_max_A2": 661.2775467440662,
+    "recomputed_max_A2": 661.2775467440661,
+    "relative_at_winner": 0.9999999999999998
+  },
+  {
+    "name": "LYS",
+    "probe": 6.0,
+    "file": "reference_conformers/LYS_6.pdb",
+    "stored_max_A2": 731.5905735505196,
+    "recomputed_max_A2": 731.5905735505195,
+    "relative_at_winner": 0.9999999999999999
+  },
+  {
+    "name": "MET",
+    "probe": 6.0,
+    "file": "reference_conformers/MET_6.pdb",
+    "stored_max_A2": 715.6609614960819,
+    "recomputed_max_A2": 715.6609614960819,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "PHE",
+    "probe": 6.0,
+    "file": "reference_conformers/PHE_6.pdb",
+    "stored_max_A2": 750.942955199273,
+    "recomputed_max_A2": 750.942955199273,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "PRO",
+    "probe": 6.0,
+    "file": "reference_conformers/PRO_6.pdb",
+    "stored_max_A2": 555.5047262902272,
+    "recomputed_max_A2": 555.5047262902272,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "SER",
+    "probe": 6.0,
+    "file": "reference_conformers/SER_6.pdb",
+    "stored_max_A2": 521.4190724323529,
+    "recomputed_max_A2": 521.4190724323529,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "THR",
+    "probe": 6.0,
+    "file": "reference_conformers/THR_6.pdb",
+    "stored_max_A2": 578.7010934798303,
+    "recomputed_max_A2": 578.7010934798303,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "TRP",
+    "probe": 6.0,
+    "file": "reference_conformers/TRP_6.pdb",
+    "stored_max_A2": 854.0687207026617,
+    "recomputed_max_A2": 854.0687207026617,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "TYR",
+    "probe": 6.0,
+    "file": "reference_conformers/TYR_6.pdb",
+    "stored_max_A2": 790.9198810577825,
+    "recomputed_max_A2": 790.9198810577825,
+    "relative_at_winner": 1.0
+  },
+  {
+    "name": "VAL",
+    "probe": 6.0,
+    "file": "reference_conformers/VAL_6.pdb",
+    "stored_max_A2": 596.7036476219637,
+    "recomputed_max_A2": 596.7036476219637,
+    "relative_at_winner": 1.0
+  }
+]
