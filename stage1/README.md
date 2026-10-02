@@ -36,8 +36,8 @@ The main script is used to:
 2. Retrieve structural and sequence metadata in batches from the RCSB GraphQL API.
 3. Retrieve UniProt annotations and check the OPM membrane-protein database.
 4. Screen every candidate against the Stage 1 biological restrictions.
-5. Assign RCSB 30% sequence-identity clusters.
-6. Determine whether post-cutoff clusters contain pre-cutoff structures.
+5. Assign RCSB 30% sequence-identity clusters, used to keep the splits non-redundant.
+6. Search every post-cutoff candidate's sequence directly against pre-cutoff PDB structures to decide between Test A and Test B.
 7. Construct cluster-disjoint development, validation, Test A, and Test B splits.
 8. Force-include two priority targets.
 9. Save the generated datasets, a manual review queue, and a random manual-inspection sample as CSV files.
@@ -64,14 +64,9 @@ Water, ions, buffers, cryoprotectants, and common crystallisation additives are 
 
 The overall `screening_decision` is `EXCLUDE` if any criterion fails, `FLAG` if any criterion is flagged, and `INCLUDE` otherwise. Notes explaining each failure and flag are stored in `screening_notes` and `flag_reasons`.
 
-Candidates eligible for the splits (`passes_standard_filters`) must also have an RCSB 30% sequence cluster, and:
+Candidates eligible for the splits (`passes_standard_filters`) must have an `INCLUDE` decision and an RCSB 30% sequence cluster. `FLAG` candidates need manual review, so by default they are kept out of every split. This is controlled separately for the pre-cutoff development/validation pool and the post-cutoff test pool by `ALLOW_FLAGGED_IN_DEV_VAL` and `ALLOW_FLAGGED_IN_TEST` (both currently `False`).
 
-- **Development / validation** (pre-cutoff): `INCLUDE` or `FLAG`, since these sets are used freely during method development.
-- **Test A / Test B** (post-cutoff): `INCLUDE` only, so the locked test sets contain no unreviewed exceptions.
-
-These choices are controlled by `ALLOW_FLAGGED_IN_DEV_VAL` and `ALLOW_FLAGGED_IN_TEST`.
-
-The two priority proteins are deliberately force-included even when they do not satisfy all of the standard automated filters. Their automated verdicts are kept and the override is recorded in `flag_reasons`.
+The two priority proteins are special proteins selected for investigation. They are force-included even when they do not satisfy all of the standard automated filters. Their automated verdicts are kept and the override is recorded in `flag_reasons`.
 
 ---
 
@@ -124,7 +119,7 @@ datasets/test_a.csv
 
 Current size: **20 proteins**
 
-Test A contains proteins whose experimental structures were released after 30 September 2021.
+Test A contains proteins whose experimental structures were released after 30 September 2021 and that have a close pre-cutoff relative: at least one PDB structure released on or before the cutoff aligns to them with ≥ 30% sequence identity over ≥ 80% of their sequence (see [Test A / Test B Rule](#test-a--test-b-rule)).
 
 It tests performance on structures that were not directly present within the OpenFold3 structural-training period.
 
@@ -137,7 +132,7 @@ Test A and Test B are mutually exclusive.
 - Chain: `A`
 - Split: Test A
 
-pro-IL-18 is not pinned to a split. It is placed in Test A because its 30% sequence cluster contains a structure released before the cutoff; if a future re-clustering removed that member, it would move to Test B.
+pro-IL-18 is not pinned to a split; it goes through the same Test A / Test B rule as every other post-cutoff protein. It is placed in Test A because the pre-cutoff mature IL-18 structure `1J0S` aligns to it with 100% identity over 81% of its sequence.
 
 ---
 
@@ -151,9 +146,9 @@ datasets/test_b.csv
 
 Current size: **20 proteins**
 
-For normal candidates, Test B contains post-cutoff proteins whose RCSB 30% sequence cluster contains no PDB structure released on or before 30 September 2021.
+For normal candidates, Test B contains post-cutoff proteins for which no PDB structure released on or before 30 September 2021 reaches ≥ 30% sequence identity over ≥ 80% of the protein's sequence (see [Test A / Test B Rule](#test-a--test-b-rule)).
 
-This is intended to provide a more difficult generalization test where the model cannot simply rely on a very closely related pre-cutoff structural example.
+This is intended to provide a more difficult generalization test where the model cannot simply rely on a closely related pre-cutoff structural example.
 
 Test A and Test B are mutually exclusive.
 
@@ -170,7 +165,9 @@ Although BCCIPα has strong sequence similarity to the pre-cutoff BCCIPβ struct
 
 It is also one of the more interesting cases where the AlphaFold3 prediction differs substantially from the experimentally determined structure.
 
-For this reason, BCCIPα is pinned to Test B through `forced_split` in `PRIORITY_TARGETS`, regardless of its current 30% sequence cluster. The script raises an error if it is not placed there.
+For this reason, BCCIPα is pinned to Test B through `forced_split` in `PRIORITY_TARGETS`, regardless of how the sequence-similarity rule classifies it. The script raises an error if it is not placed there.
+
+(Under the current rule BCCIPα would also fall into Test B on its own: its closest pre-cutoff match, BCCIPβ `7KYQ`, has 92% identity but covers only 75% of the BCCIPα sequence.)
 
 ---
 
@@ -187,11 +184,46 @@ The selected:
 - Test A; and
 - Test B
 
-are constructed so that they do not share 30% sequence clusters.
+are constructed so that they do not share 30% sequence clusters or non-empty UniProt accessions.
 
-For Test B, the script additionally checks whether any member of a post-cutoff candidate's 30% sequence cluster has a PDB structure released on or before 30 September 2021.
+---
 
-If no pre-cutoff member exists, the candidate can be considered for Test B.
+## Test A / Test B Rule
+
+Post-cutoff candidates are separated into Test A and Test B by searching their sequences directly against pre-cutoff PDB structures, rather than by cluster membership:
+
+```text
+post-cutoff protein
+        ↓
+RCSB sequence search against PDB polymer entities
+released on or before 30 September 2021
+        ↓
+for every returned alignment:
+    identity = alignment sequence identity
+    coverage = aligned residues of the post-cutoff protein
+               / length of the post-cutoff protein
+        ↓
+does ANY pre-cutoff alignment have
+identity ≥ 30% AND coverage ≥ 80%?
+        ↓
+YES → Test A        NO → Test B
+```
+
+The result is stored in `precutoff_search_status`:
+
+| Status | Meaning | Eligible for |
+|---|---|---|
+| `similar_hit` | at least one pre-cutoff alignment reaches both thresholds | Test A |
+| `no_similar_hit` | no pre-cutoff alignment reaches both thresholds (including no hits at all) | Test B |
+| `incomplete_search` | more than 1000 hits were returned and none of the inspected ones qualified | neither |
+| `api_error` | the search could not be completed | neither |
+| `not_applicable_pre_cutoff` | the candidate itself is pre-cutoff | — |
+
+Candidates with `incomplete_search` or `api_error` are left out of both test sets and listed in a warning when the script runs. If a priority target without a `forced_split` cannot be classified, the script stops with an error.
+
+The best pre-cutoff alignment for each post-cutoff candidate is recorded in `best_precutoff_hit`, `best_precutoff_pident`, `best_precutoff_coverage`, and `best_precutoff_evalue`. This is the best qualifying hit for `similar_hit`, or the best-covering near miss otherwise.
+
+The thresholds are set by `TESTB_MAX_PIDENT` and `TESTB_MIN_COVERAGE`.
 
 ---
 
@@ -210,8 +242,6 @@ These targets are retained even if they fail one or more of the standard benchma
 
 ## Generated Dataset Files
 
-The committed CSV files are the snapshot produced by the current `build_dataset.py`.
-
 ### `all_candidates.csv`
 
 Contains all successfully retrieved pre- and post-cutoff candidates with their per-criterion screening verdicts, overall `screening_decision`, and `passes_standard_filters`.
@@ -221,10 +251,11 @@ Current snapshot:
 ```text
 1702 candidates  (500 pre-cutoff + 1200 post-cutoff + 2 priority targets)
 
-                 INCLUDE   FLAG   EXCLUDE
-pre-cutoff           119     74       307
-post-cutoff          157    262       783
-total                276    336      1090
+                    INCLUDE   FLAG   EXCLUDE
+pre-cutoff              118     75       307
+post-cutoff             135    284       781
+priority targets          0      0         2
+total                   253    359      1090
 ```
 
 ---
@@ -236,14 +267,14 @@ Contains candidates that pass the standard benchmark filters together with the f
 It also records information used during split construction, including:
 
 - sequence cluster;
-- whether the cluster has a pre-cutoff member;
+- the Test A / Test B sequence-search result (`precutoff_search_status` and the `best_precutoff_*` columns);
 - priority-target status; and
 - final dataset assignment where applicable.
 
 Current snapshot:
 
 ```text
-352 candidates  (350 passing the standard filters + 2 priority targets)
+255 candidates  (253 passing the standard filters + 2 priority targets)
 ```
 
 ---
@@ -252,7 +283,7 @@ Current snapshot:
 
 Candidates with a `FLAG` decision, plus the priority targets, for manual review.
 
-Current snapshot: 338 rows (336 flagged candidates + 2 priority targets).
+Current snapshot: 361 rows (359 flagged candidates + 2 priority targets).
 
 ---
 
@@ -264,7 +295,7 @@ A random subset of 20 automatically accepted, split-assigned proteins with empty
 
 ### `dataset_manifest.json`
 
-Records the filter configuration, split sizes, and SHA-256 hashes of `development.csv`, `validation.csv`, `test_a.csv`, and `test_b.csv`, so any later change to a locked test set can be detected.
+Records the filter configuration (including the Test A / Test B identity and coverage thresholds), split sizes, and SHA-256 hashes of `development.csv`, `validation.csv`, `test_a.csv`, and `test_b.csv`, so any later change to a locked test set can be detected.
 
 ---
 
@@ -279,7 +310,7 @@ test_b.csv         20 proteins
 
 The four selected datasets are mutually exclusive and do not share RCSB 30% sequence clusters.
 
-Because flagged pre-cutoff proteins are allowed in development and validation, 12 of the 30 development proteins and 7 of the 15 validation proteins currently have a `FLAG` decision. Test A and Test B contain only `INCLUDE` proteins plus the priority targets.
+All selected proteins have an `INCLUDE` decision, except the two priority targets (both `EXCLUDE` by the automated screen and force-included).
 
 ---
 
@@ -312,7 +343,15 @@ Large ligand:                 ≥ 500 Da or > 25 heavy atoms (fail)
 Medium ligand:                ≥ 200 Da or > 12 heavy atoms (flag)
 ```
 
-Because RCSB metadata and sequence-cluster files may change over time, the committed CSV files should be treated as the saved benchmark snapshot used for the project.
+The Test A / Test B rule uses:
+
+```text
+Minimum identity (Test A):    30%
+Minimum coverage (Test A):    80% of the post-cutoff protein
+Search hits inspected:        1000 per protein
+```
+
+Because RCSB metadata, sequence-cluster files, and sequence-search results may change over time, the committed CSV files should be treated as the saved benchmark snapshot used for the project.
 
 Once the final Test A and Test B datasets are agreed upon, they should be treated as locked test sets and should not be repeatedly regenerated during method development.
 

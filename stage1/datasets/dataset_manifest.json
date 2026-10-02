@@ -1,4 +1,7 @@
 {
+  "build_date": "2026-10-02T04:37:14+00:00",
+  "sequence_cluster_url": "https://cdn.rcsb.org/resources/sequence/clusters/clusters-by-entity-30.txt",
+  "sequence_cluster_snapshot": "Sun, 27 Sep 2026 14:04:07 GMT",
   "cutoff_date": "2021-09-30",
   "random_seed": 42,
   "length_range": [
@@ -24,8 +27,10 @@
   "allow_flagged_in_dev_val": false,
   "allow_flagged_in_test": false,
   "n_pre_candidates": 500,
-  "n_post_candidates": 1200,
+  "n_post_candidates": 2000,
   "sequence_cluster_identity": 0.3,
+  "test_b_max_sequence_identity": 0.3,
+  "test_b_min_target_coverage": 0.8,
   "priority_targets": {
     "8EXF": {
       "chain_id": "B",
@@ -45,9 +50,9 @@
     "test_b": 20
   },
   "sha256": {
-    "development": "0f6dad4012b74f5c97cf0ff9f5e4913ee1ff6aba86ae53b0fdc64574944be866",
-    "validation": "a61ffb186d4c91eb650ea08f914a840e7473ecbac308ecbc07ba6e050e202d32",
-    "test_a": "d4c36b854e98fb083cb636dbe2565b660d19f01cae375d5bb49b1b0fc9237c3e",
-    "test_b": "ad336bcccf16c20b230e317654701d151e2957e23eeea6ae81353bd0a78d48f0"
+    "development": "b69d0597a1c6bd5fee7b11a063176b2d455fc18fac47e4028174bfcb3f289a84",
+    "validation": "e56e91b20333d5dc4476a0aad488b819d41eb091972667d41a8c97c4d8afa405",
+    "test_a": "533d4cda6af49ba9fe57e1a0584aca2811d057472b8340c7a3cf1ccda156fdba",
+    "test_b": "dbc97f29ec8889f5ac8422ac2ef1f02811de650f699c4bd23c8c59b0ca9727f1"
   }
 }

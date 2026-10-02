@@ -12,9 +12,12 @@ Pipeline
   4. OPM               -> membrane-protein cross-reference
   5. Biological screen -> PASS / FLAG / FAIL for each Stage 1 restriction and
                           an overall INCLUDE / FLAG / EXCLUDE decision
-  6. RCSB 30% sequence clusters and pre-cutoff homolog detection
-  7. Cluster-disjoint development / validation / Test A / Test B splits
-  8. CSV outputs, including a review queue and a random manual-inspection
+  6. RCSB 30% sequence clusters, used to keep the splits non-redundant
+  7. Direct sequence search of every post-cutoff candidate against
+     pre-cutoff PDB: any hit with >=30% identity over >=80% of the
+     candidate -> Test A, otherwise -> Test B
+  8. Cluster-disjoint development / validation / Test A / Test B splits
+  9. CSV outputs, including a review queue and a random manual-inspection
      sample
 
 OpenFold3 structural training cutoff: 2021-09-30
@@ -28,6 +31,7 @@ import random
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -40,11 +44,11 @@ import requests
 
 CUTOFF_DATE = "2021-09-30"
 
-# No. of residues
+# Number of residues.
 MIN_LENGTH = 80
 MAX_LENGTH = 400
 
-# Resolved fraction >= 90% and Resolution <= 3.5 Å
+# Resolved fraction >= 90% and resolution <= 3.5 Å.
 MIN_RESOLVED_FRACTION = 0.90
 MAX_RESOLUTION = 3.5
 
@@ -62,7 +66,7 @@ MAX_UNOBSERVED_SEGMENT = 20
 MAX_DISORDER_ANNOTATION_FRACTION = 0.20
 
 # Not dependent on large ligands.
-# Non-trivial ligands at/above these limits fail; between the medium and
+# Non-trivial ligands at/above the large limits fail; between the medium and
 # large limits they are flagged for manual review.
 LARGE_LIGAND_MW = 500.0
 LARGE_LIGAND_HEAVY_ATOMS = 25
@@ -78,9 +82,9 @@ ALLOW_FLAGGED_IN_TEST = False
 # The biological screen is stricter than a simple metadata filter, so more
 # raw candidates are needed to fill every split.
 N_PRE_CANDIDATES = 500
-N_POST_CANDIDATES = 1200
+N_POST_CANDIDATES = 2000
 
-# Final dataset sizes
+# Final dataset sizes.
 N_DEVELOPMENT = 30
 N_VALIDATION = 15
 N_TEST_A = 20
@@ -92,7 +96,23 @@ N_MANUAL_INSPECTION = 20
 RANDOM_SEED = 42
 
 # Number of search hits from which the raw candidate sample is drawn.
-MAX_SEARCH_HITS = 5000
+# None retrieves the complete result set, which is what makes the candidate
+# sample a uniform random draw. RCSB returns hits in a fixed order that
+# front-loads the oldest entries, so truncating the search silently biases
+# the sample by release date (a 5000-hit cap gave pre-cutoff candidates
+# exclusively from 1988-2004). Set an integer only for quick test runs.
+MAX_SEARCH_HITS = None
+
+# Test A / Test B rule. A post-cutoff protein goes to Test A when any
+# pre-cutoff PDB protein aligns to it with at least TESTB_MAX_PIDENT identity
+# over at least TESTB_MIN_COVERAGE of the post-cutoff sequence; otherwise it
+# is eligible for Test B.
+TESTB_MAX_PIDENT = 0.30
+TESTB_MIN_COVERAGE = 0.80
+# Hits inspected per search. Hits are ranked by alignment score, so a
+# qualifying hit is almost always among the first ones returned.
+MAX_SEQUENCE_SEARCH_RESULTS = 1000
+SEQUENCE_SEARCH_RETRIES = 3
 
 # Do not hammer the RCSB / UniProt servers with too many simultaneous requests.
 MAX_WORKERS = 6
@@ -105,18 +125,17 @@ GRAPHQL_BATCH_SIZE = 50
 UNIPROT_BATCH_SIZE = 100
 UNIPROT_RETRIES = 6
 
-# These are force-included even when they do not satisfy the standard
-# automated benchmark filters.
+# Special proteins selected for investigation. They are always included,
+# even when they fail the standard automated filters.
 #
 # 8EXF: BCCIPalpha is chain B in a FAM46A-BCCIPalpha complex.
 # 8URV: pro-IL-18 is chain A and was determined by solution NMR.
 #
-# forced_split pins a target to a split regardless of its sequence cluster.
-# BCCIPalpha is placed in Test B by supervisor decision: its fold differs
-# substantially from the sequence-similar pre-cutoff BCCIPbeta, so it must
-# not drift into Test A if RCSB's weekly re-clustering changes its cluster.
-# With forced_split None, a target goes to Test B only if its 30% cluster
-# has no pre-cutoff member, and to Test A otherwise.
+# forced_split pins a target to a split. BCCIPalpha is pinned to Test B
+# because its fold differs substantially from the sequence-similar
+# pre-cutoff BCCIPbeta, so sequence similarity alone would misjudge it.
+# With forced_split None, the target goes through the same Test A / Test B
+# rule as every other post-cutoff protein.
 PRIORITY_TARGETS = {
     "8EXF": {
         "chain_id": "B",
@@ -166,10 +185,7 @@ UNIPROT_LIPID_KEYWORDS = {
     "Geranylgeranylation", "Myristoylation", "Palmitoylation",
 }
 
-MEMBRANE_SUBLOC_TOKENS = (
-    "membrane",
-    "cell surface",
-)
+MEMBRANE_SUBLOC_TOKENS = ("membrane", "cell surface")
 
 # UniProt SUBUNIT text that suggests an obligate oligomer or complex subunit.
 OBLIGATE_COMPLEX_PATTERN = re.compile(
@@ -210,26 +226,8 @@ DATASET_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ============================================================
-# BASIC HTTP FUNCTIONS
+# HTTP AND THREADING HELPERS
 # ============================================================
-
-def get_json(url: str, retries: int = 3):
-    """GET JSON with simple retry handling."""
-    for attempt in range(retries):
-        try:
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            return response.json()
-
-        except requests.RequestException as exc:
-            if attempt == retries - 1:
-                raise
-
-            wait = 2 ** attempt
-            print(f"Request failed: {exc}")
-            print(f"Retrying in {wait}s...")
-            time.sleep(wait)
-
 
 def post_json(url: str, payload: dict, retries: int = 3):
     """POST JSON with simple retry handling."""
@@ -270,11 +268,29 @@ def url_exists(url: str, retries: int = 3):
     return None
 
 
+def run_threaded(function, items, label: str):
+    """Run function(item) for every item with MAX_WORKERS threads."""
+
+    results = {}
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {executor.submit(function, item): item for item in items}
+
+        for completed, future in enumerate(as_completed(futures), start=1):
+            results[futures[future]] = future.result()
+
+            if completed % 50 == 0 or completed == len(futures):
+                print(f"{label}: {completed}/{len(futures)}")
+
+    return results
+
+
 # ============================================================
 # RCSB SEARCH
 # ============================================================
 
 def terminal(attribute: str, operator: str, value):
+    """One RCSB Search API text-attribute condition."""
     return {
         "type": "terminal",
         "service": "text",
@@ -288,7 +304,7 @@ def terminal(attribute: str, operator: str, value):
 
 def search_candidate_pdb_ids(
     pre_cutoff: bool,
-    max_results: int = MAX_SEARCH_HITS,
+    max_results: int | None = MAX_SEARCH_HITS,
 ):
     """
     Search RCSB for entries that:
@@ -296,16 +312,17 @@ def search_candidate_pdb_ids(
       - contain one deposited polymer chain
       - have sequence length 80-400
       - are before OR after the OpenFold3 cutoff
+
+    Pages through the whole result set unless max_results caps it. The
+    complete set matters: the hits are not returned in a random order, so
+    a truncated search is a biased sample of the PDB rather than a smaller
+    one, and no amount of later shuffling repairs that.
     """
 
     date_operator = "less_or_equal" if pre_cutoff else "greater"
 
     nodes = [
-        terminal(
-            "rcsb_entry_info.polymer_entity_count_protein",
-            "equals",
-            1,
-        ),
+        terminal("rcsb_entry_info.polymer_entity_count_protein", "equals", 1),
         terminal(
             "rcsb_entry_info.deposited_polymer_entity_instance_count",
             "equals",
@@ -331,10 +348,16 @@ def search_candidate_pdb_ids(
     all_ids = []
     page_size = 1000
     start = 0
+    total_count = None
 
-    while len(all_ids) < max_results:
+    while True:
 
-        rows = min(page_size, max_results - len(all_ids))
+        if max_results is None:
+            rows = page_size
+        else:
+            if len(all_ids) >= max_results:
+                break
+            rows = min(page_size, max_results - len(all_ids))
 
         payload = {
             "query": {
@@ -344,27 +367,29 @@ def search_candidate_pdb_ids(
             },
             "return_type": "entry",
             "request_options": {
-                "paginate": {
-                    "start": start,
-                    "rows": rows,
-                },
+                "paginate": {"start": start, "rows": rows},
                 "results_content_type": ["experimental"],
             },
         }
 
-        result = post_json(SEARCH_API, payload)
+        data = post_json(SEARCH_API, payload)
+        hits = data.get("result_set", [])
 
-        hits = result.get("result_set", [])
+        if total_count is None:
+            total_count = int(data.get("total_count") or 0)
+            print(f"Result set contains {total_count:,} entries.")
 
         if not hits:
             break
 
         ids = [hit["identifier"].upper() for hit in hits]
-
         all_ids.extend(ids)
         start += len(ids)
 
         if len(ids) < rows:
+            break
+
+        if total_count and start >= total_count:
             break
 
     return list(dict.fromkeys(all_ids))
@@ -450,10 +475,7 @@ def fetch_entry_metadata(pdb_ids):
 
         data = post_json(
             GRAPHQL_API,
-            {
-                "query": METADATA_QUERY,
-                "variables": {"ids": batch},
-            },
+            {"query": METADATA_QUERY, "variables": {"ids": batch}},
         )
 
         entries = (data.get("data") or {}).get("entries") or []
@@ -505,9 +527,7 @@ def is_standard_protein_sequence(sequence: str) -> bool:
 def instance_chain_ids(instance) -> tuple[str, str]:
     """Return (author chain ID, label chain ID) for a polymer instance."""
     ids = (
-        instance.get(
-            "rcsb_polymer_entity_instance_container_identifiers"
-        )
+        instance.get("rcsb_polymer_entity_instance_container_identifiers")
         or {}
     )
 
@@ -521,12 +541,11 @@ def select_entity(entry: dict, target_chain_id: str | None = None):
     """
     Select the protein polymer entity and chain instance to benchmark.
 
-    Standard candidates are required to contain exactly one polymer
-    entity, preserving the original benchmark logic.
+    Standard candidates must contain exactly one polymer entity.
 
-    Priority targets may specify a chain ID. In that case, the matching
-    polymer entity is selected even when the PDB entry contains multiple
-    protein entities (for example, 8EXF).
+    Priority targets specify a chain ID, and the matching polymer entity is
+    selected even when the entry contains several protein entities
+    (for example, 8EXF).
 
     Returns (entity, instance), or (None, None) when the entry is not a
     valid standard candidate.
@@ -596,7 +615,7 @@ def chain_resolution_stats(entry: dict, instance: dict | None):
 
     Prefer the selected chain's RCSB UNOBSERVED_RESIDUE_XYZ annotation.
     This is correct at the chain level for both ordinary monomers and
-    priority cases embedded in multi-chain structures. Assembly-level
+    priority targets embedded in multi-chain structures. Assembly-level
     modelled/total residue counts are used only when chain annotations are
     unavailable.
     """
@@ -649,9 +668,7 @@ def extract_metadata(
     priority_name: str = "",
     forced_split: str | None = None,
 ):
-    """
-    Build the metadata row for one candidate protein chain.
-    """
+    """Build the metadata row for one candidate protein chain."""
 
     entity_poly = entity.get("entity_poly") or {}
 
@@ -665,16 +682,13 @@ def extract_metadata(
         length = len(sequence)
 
     chain_id, label_chain_id = (
-        instance_chain_ids(instance)
-        if instance is not None
-        else ("", "")
+        instance_chain_ids(instance) if instance is not None else ("", "")
     )
 
     entity_number = str(entity.get("rcsb_id", "")).split("_")[-1]
 
     release_date = (
-        (entry.get("rcsb_accession_info") or {})
-        .get("initial_release_date")
+        (entry.get("rcsb_accession_info") or {}).get("initial_release_date")
         or ""
     )[:10]
 
@@ -687,8 +701,7 @@ def extract_metadata(
     resolutions = [
         float(x)
         for x in (
-            (entry.get("rcsb_entry_info") or {})
-            .get("resolution_combined")
+            (entry.get("rcsb_entry_info") or {}).get("resolution_combined")
             or []
         )
         if x is not None
@@ -708,10 +721,7 @@ def extract_metadata(
         if uniprot.get("rcsb_id")
     ]
 
-    resolved_fraction, longest_gap = chain_resolution_stats(
-        entry,
-        instance,
-    )
+    resolved_fraction, longest_gap = chain_resolution_stats(entry, instance)
 
     assembly = preferred_assembly(entry)
     info = assembly_info(assembly)
@@ -742,8 +752,7 @@ def extract_metadata(
         "label_chain_id": label_chain_id,
         "polymer_entity_id": f"{pdb_id}_{entity_number}",
         "protein_name": (
-            (entity.get("rcsb_polymer_entity") or {})
-            .get("pdbx_description")
+            (entity.get("rcsb_polymer_entity") or {}).get("pdbx_description")
             or ""
         ),
         "release_date": release_date,
@@ -763,7 +772,6 @@ def extract_metadata(
         "biological_assembly": biological_assembly,
         "standard_sequence": is_standard_protein_sequence(sequence),
         "sequence_cluster": None,
-        "has_pre_cutoff_cluster_member": None,
         "training_or_test_split": "unassigned",
         "priority_target": bool(priority_target),
         "priority_name": priority_name,
@@ -799,6 +807,10 @@ def parse_uniprot(data: dict | None) -> dict:
         "transmembrane_regions": [],
         "has_lipidation": False,
         "has_gpi_anchor": False,
+        # Positions of the lipidation/GPI features, so the screen can ask
+        # whether they fall inside the crystallised construct. Keyword-only
+        # evidence contributes no position and leaves this list short.
+        "lipidation_regions": [],
         "membrane_locations": [],
         "disordered_regions": [],
         "subunit_text": "",
@@ -820,6 +832,7 @@ def parse_uniprot(data: dict | None) -> dict:
 
         elif feature_type == "LIPIDATION":
             flags["has_lipidation"] = True
+            flags["lipidation_regions"].append(region)
 
             if "GPI" in description.upper():
                 flags["has_gpi_anchor"] = True
@@ -1012,10 +1025,7 @@ def count_overlap(regions, positions: set[int]) -> int:
     return sum(
         1
         for position in positions
-        if any(
-            start <= position <= end
-            for start, end in regions
-        )
+        if any(start <= position <= end for start, end in regions)
     )
 
 
@@ -1064,10 +1074,7 @@ def classify_ligands(nonpolymer_entities: list):
 
     for ligand in nonpolymer_entities or []:
 
-        comp = (
-            (ligand.get("nonpolymer_comp") or {}).get("chem_comp") or {}
-        )
-
+        comp = (ligand.get("nonpolymer_comp") or {}).get("chem_comp") or {}
         ccd = comp.get("id") or ""
 
         if not ccd or ccd in TRIVIAL_LIGANDS:
@@ -1085,10 +1092,7 @@ def classify_ligands(nonpolymer_entities: list):
             f"{weight:.0f} Da; {heavy_atoms} heavy atoms)"
         )
 
-        if (
-            weight >= LARGE_LIGAND_MW
-            or heavy_atoms > LARGE_LIGAND_HEAVY_ATOMS
-        ):
+        if weight >= LARGE_LIGAND_MW or heavy_atoms > LARGE_LIGAND_HEAVY_ATOMS:
             notes.append(f"large ligand {description}")
             verdict = "FAIL"
 
@@ -1246,6 +1250,8 @@ def screen_candidate(
         if tm_regions:
             known_regions = [r for r in tm_regions if r is not None]
 
+            # Fail unless every TM segment is known to lie outside the
+            # construct; then it is only a soluble domain of a TM protein.
             if (
                 not construct_positions
                 or len(known_regions) < len(tm_regions)
@@ -1262,11 +1268,42 @@ def screen_candidate(
                     "(TM segment outside construct)",
                 )
 
-        if uniprot["has_gpi_anchor"]:
-            fail("soluble", "UniProt GPI anchor")
+        # Lipidation is judged against the construct, like the
+        # transmembrane check above: an N-terminal myristoylation site or a
+        # C-terminal GPI signal that was not crystallised does not make the
+        # modelled fragment a membrane-associated protein. Keyword-only
+        # evidence carries no position, so it can only be flagged for
+        # manual review.
+        if uniprot["has_gpi_anchor"] or uniprot["has_lipidation"]:
 
-        elif uniprot["has_lipidation"]:
-            fail("soluble", "UniProt lipid anchor / lipidation")
+            label = (
+                "GPI anchor"
+                if uniprot["has_gpi_anchor"]
+                else "lipid anchor / lipidation"
+            )
+
+            lipid_regions = uniprot["lipidation_regions"]
+            known_lipid = [r for r in lipid_regions if r is not None]
+
+            if (
+                not construct_positions
+                or not known_lipid
+                or len(known_lipid) < len(lipid_regions)
+            ):
+                flag(
+                    "soluble",
+                    f"UniProt {label}; position could not be checked "
+                    "against the construct",
+                )
+
+            elif count_overlap(known_lipid, construct_positions):
+                fail("soluble", f"UniProt {label} site inside construct")
+
+            else:
+                flag(
+                    "soluble",
+                    f"UniProt {label} site outside construct",
+                )
 
         if uniprot["membrane_locations"]:
             flag(
@@ -1291,26 +1328,25 @@ def screen_candidate(
     else:
         fail(
             "length_80_400",
-            f"length {row['length']} outside "
-            f"[{MIN_LENGTH}, {MAX_LENGTH}]",
+            f"length {row['length']} outside [{MIN_LENGTH}, {MAX_LENGTH}]",
         )
 
     # --------------------------------------------------------
     # Construct sequence sanity checks
     # --------------------------------------------------------
 
+    sequence = row["sequence"]
+
     verdicts["sequence_length_consistent"] = "PASS"
 
-    if len(row["sequence"]) != row["length"]:
+    if len(sequence) != row["length"]:
         flag(
             "sequence_length_consistent",
-            f"sequence string length {len(row['sequence'])} "
+            f"sequence string length {len(sequence)} "
             f"!= metadata length {row['length']}",
         )
 
     verdicts["no_terminal_his_tag"] = "PASS"
-
-    sequence = row["sequence"]
 
     if (
         re.search(r"H{5,}", sequence[:30])
@@ -1344,11 +1380,21 @@ def screen_candidate(
 
     verdicts["structure_quality"] = "PASS"
 
-    if row["experimental_method"] not in ALLOWED_METHODS:
+    # experimental_method is a "; "-joined string, so a multi-method entry
+    # ("X-RAY DIFFRACTION; NEUTRON DIFFRACTION") must be compared method by
+    # method rather than as one value.
+    methods = {
+        method.strip()
+        for method in str(row["experimental_method"] or "").split(";")
+        if method.strip()
+    }
+
+    if not methods or not methods <= ALLOWED_METHODS:
         fail(
             "structure_quality",
-            f"method {row['experimental_method'] or 'unknown'} "
-            "not allowed",
+            "method "
+            + ("; ".join(sorted(methods - ALLOWED_METHODS)) or "unknown")
+            + " not allowed",
         )
 
     if row["resolution"] is None:
@@ -1356,8 +1402,7 @@ def screen_candidate(
     elif row["resolution"] > MAX_RESOLUTION:
         fail(
             "structure_quality",
-            f"resolution {row['resolution']:.2f} Å "
-            f"> {MAX_RESOLUTION} Å",
+            f"resolution {row['resolution']:.2f} Å > {MAX_RESOLUTION} Å",
         )
 
     if not row["standard_sequence"]:
@@ -1442,224 +1487,286 @@ def screen_candidate(
 # SEQUENCE CLUSTERS
 # ============================================================
 
-def download_sequence_clusters():
+def download_sequence_clusters() -> tuple[dict, str]:
     """
     Download RCSB's current 30%-sequence-identity clusters.
 
-    Returns:
-        entity_to_cluster
-        cluster_to_entities
+    Returns ({polymer entity ID: cluster ID}, snapshot date), where the
+    snapshot date is the file's Last-Modified header. RCSB rebuilds these
+    clusters as the PDB grows, so the split hashes only mean something
+    alongside a record of which cluster snapshot produced them.
     """
 
     print("\nDownloading RCSB 30% sequence clusters...")
 
-    response = requests.get(
-        CLUSTER_30_URL,
-        timeout=120,
-    )
+    response = requests.get(CLUSTER_30_URL, timeout=120)
     response.raise_for_status()
 
-    entity_to_cluster = {}
-    cluster_to_entities = {}
+    snapshot = response.headers.get("Last-Modified", "unknown")
 
-    for cluster_number, line in enumerate(
-        response.text.splitlines(),
-        start=1,
-    ):
-        entities = [
-            x.upper()
-            for x in line.split()
-            if x.strip()
-        ]
+    entity_to_cluster = {}
+    n_clusters = 0
+
+    # One cluster per line, listing its member entities (e.g. "1ABC_1").
+    for cluster_number, line in enumerate(response.text.splitlines(), start=1):
+
+        entities = [x.upper() for x in line.split() if x.strip()]
 
         if not entities:
             continue
 
         cluster_id = f"seq30_{cluster_number:06d}"
-
-        cluster_to_entities[cluster_id] = entities
+        n_clusters += 1
 
         for entity in entities:
             entity_to_cluster[entity] = cluster_id
 
     print(
-        f"Loaded {len(cluster_to_entities):,} "
-        f"30% sequence clusters."
+        f"Loaded {n_clusters:,} 30% sequence clusters "
+        f"(snapshot: {snapshot})."
     )
 
-    return entity_to_cluster, cluster_to_entities
+    return entity_to_cluster, snapshot
 
 
 # ============================================================
-# RELEASE DATES FOR CLUSTER MEMBERS
+# PRE-CUTOFF SEQUENCE SIMILARITY (TEST A / TEST B RULE)
 # ============================================================
 
-def fetch_release_dates_batch(pdb_ids):
-    """
-    Retrieve initial PDB release dates in batches through
-    the RCSB GraphQL Data API.
-    """
+def alignment_metrics(result: dict) -> list[dict]:
+    """Extract identity, target coverage, and e-value from one RCSB hit."""
 
-    pdb_ids = sorted(set(x.upper() for x in pdb_ids))
+    alignments = []
 
-    query = """
-    query GetEntries($ids: [String!]!) {
-        entries(entry_ids: $ids) {
-            rcsb_id
-            rcsb_accession_info {
-                initial_release_date
-            }
-        }
-    }
-    """
+    for service in result.get("services", []):
+        if service.get("service_type") != "sequence":
+            continue
 
-    result = {}
+        for node in service.get("nodes", []):
+            for match in node.get("match_context", []):
 
-    batch_size = 300
+                query_length = int(match.get("query_length") or 0)
 
-    for start in range(0, len(pdb_ids), batch_size):
+                if not query_length:
+                    continue
 
-        batch = pdb_ids[
-            start:start + batch_size
-        ]
-
-        payload = {
-            "query": query,
-            "variables": {
-                "ids": batch,
-            },
-        }
-
-        data = post_json(
-            GRAPHQL_API,
-            payload,
-        )
-
-        entries = (
-            data.get("data", {})
-            .get("entries", [])
-            or []
-        )
-
-        for entry in entries:
-
-            if not entry:
-                continue
-
-            pdb_id = entry.get("rcsb_id")
-
-            accession = (
-                entry.get(
-                    "rcsb_accession_info",
-                    {}
+                query_span = max(
+                    0,
+                    int(match.get("query_end") or 0)
+                    - int(match.get("query_beg") or 0)
+                    + 1,
                 )
-                or {}
-            )
 
-            date = accession.get(
-                "initial_release_date"
-            )
+                alignments.append(
+                    {
+                        "hit": result.get("identifier", ""),
+                        "identity": float(
+                            match.get("sequence_identity") or 0.0
+                        ),
+                        # The query is the post-cutoff candidate, so this is
+                        # the fraction of that target covered by the alignment.
+                        "coverage": query_span / query_length,
+                        "evalue": float(match.get("evalue") or 0.0),
+                    }
+                )
 
-            if pdb_id and date:
-                result[pdb_id.upper()] = date[:10]
-
-    return result
+    return alignments
 
 
-def annotate_pre_cutoff_cluster_members(
-    df,
-    cluster_to_entities,
+def query_precutoff_similarity(
+    sequence: str,
+    retries: int = SEQUENCE_SEARCH_RETRIES,
 ):
     """
-    Determine whether each candidate's 30% cluster contains
-    ANY PDB structure released on/before 30 Sep 2021.
+    Search pre-cutoff PDB proteins for a >=30%-identity / >=80%-target-
+    coverage match to one post-cutoff candidate.
 
-    This is used to identify difficult Test B candidates.
+    Returns (best_hit, identity, coverage, evalue, status), where status is:
+      - similar_hit: at least one pre-cutoff alignment reaches both thresholds
+      - no_similar_hit: the complete search has no alignment reaching both
+      - incomplete_search: more hits existed than were inspected
+      - api_error: the search could not be completed
     """
 
-    post_df = df[
-        df["release_date"] > CUTOFF_DATE
-    ]
+    payload = {
+        "query": {
+            "type": "group",
+            "logical_operator": "and",
+            "nodes": [
+                {
+                    "type": "terminal",
+                    "service": "sequence",
+                    "parameters": {
+                        "evalue_cutoff": 1000,
+                        "identity_cutoff": TESTB_MAX_PIDENT,
+                        "sequence_type": "protein",
+                        "value": sequence,
+                    },
+                },
+                terminal(
+                    "rcsb_accession_info.initial_release_date",
+                    "less_or_equal",
+                    f"{CUTOFF_DATE}T00:00:00Z",
+                ),
+            ],
+        },
+        "return_type": "polymer_entity",
+        "request_options": {
+            "paginate": {"start": 0, "rows": MAX_SEQUENCE_SEARCH_RESULTS},
+            "scoring_strategy": "sequence",
+            # Verbose results include the alignment details (match_context).
+            "results_verbosity": "verbose",
+        },
+    }
 
-    post_clusters = (
-        post_df["sequence_cluster"]
-        .dropna()
-        .unique()
-        .tolist()
-    )
+    for attempt in range(retries):
+        try:
+            response = requests.post(SEARCH_API, json=payload, timeout=60)
+            response.raise_for_status()
 
-    relevant_pdb_ids = set()
+            # RCSB answers 204 No Content (empty body) when nothing
+            # matches, i.e. no pre-cutoff protein reaches 30% identity.
+            if response.status_code == 204:
+                return "", 0.0, 0.0, 0.0, "no_similar_hit"
 
-    for cluster_id in post_clusters:
+            data = response.json()
+            results = data.get("result_set", [])
+            total_count = int(data.get("total_count") or len(results))
 
-        members = cluster_to_entities.get(
-            cluster_id,
-            [],
-        )
+            alignments = [
+                alignment
+                for result in results
+                for alignment in alignment_metrics(result)
+            ]
 
-        for member in members:
-            pdb_id = member.split("_")[0]
-            relevant_pdb_ids.add(pdb_id)
+            if not alignments:
+                return "", 0.0, 0.0, 0.0, "no_similar_hit"
 
-    print(
-        "\nChecking pre-cutoff homologs for "
-        f"{len(post_clusters)} post-cutoff clusters..."
-    )
+            qualifying_hits = [
+                alignment
+                for alignment in alignments
+                if alignment["identity"] >= TESTB_MAX_PIDENT
+                and alignment["coverage"] >= TESTB_MIN_COVERAGE
+            ]
 
-    print(
-        f"Need release dates for "
-        f"{len(relevant_pdb_ids):,} PDB entries."
-    )
+            if qualifying_hits:
+                best = max(
+                    qualifying_hits,
+                    key=lambda a: (a["identity"], a["coverage"]),
+                )
+                status = "similar_hit"
 
-    release_dates = fetch_release_dates_batch(
-        relevant_pdb_ids
-    )
+            else:
+                # Report the best-covering near miss for reference.
+                best = max(
+                    alignments,
+                    key=lambda a: (a["coverage"], a["identity"]),
+                )
+                status = (
+                    "incomplete_search"
+                    if total_count > len(results)
+                    else "no_similar_hit"
+                )
 
-    cluster_has_pre_cutoff = {}
-
-    for cluster_id in post_clusters:
-
-        members = cluster_to_entities.get(
-            cluster_id,
-            [],
-        )
-
-        has_old_member = False
-
-        for member in members:
-
-            pdb_id = member.split("_")[0]
-
-            release_date = release_dates.get(
-                pdb_id
+            return (
+                best["hit"],
+                best["identity"],
+                best["coverage"],
+                best["evalue"],
+                status,
             )
 
-            if (
-                release_date
-                and release_date <= CUTOFF_DATE
-            ):
-                has_old_member = True
+        except Exception as exc:
+            if attempt == retries - 1:
+                print(
+                    "Pre-cutoff sequence search failed after "
+                    f"{retries} attempts: {exc}"
+                )
                 break
 
-        cluster_has_pre_cutoff[
-            cluster_id
-        ] = has_old_member
+            wait = 2 ** attempt
+            print(
+                f"Pre-cutoff sequence search failed: {exc}; "
+                f"retrying in {wait}s..."
+            )
+            time.sleep(wait)
 
-    df["has_pre_cutoff_cluster_member"] = (
-        df["sequence_cluster"]
-        .map(cluster_has_pre_cutoff)
+    return "", 0.0, 0.0, 0.0, "api_error"
+
+
+def annotate_precutoff_similarity(df):
+    """
+    Apply the 30%-identity / 80%-target-coverage rule to every post-cutoff
+    candidate and record its best pre-cutoff alignment.
+    """
+
+    df = df.copy()
+
+    df["best_precutoff_hit"] = ""
+    df["best_precutoff_pident"] = None
+    df["best_precutoff_coverage"] = None
+    df["best_precutoff_evalue"] = None
+    df["precutoff_search_status"] = ""
+
+    post_indices = df.index[df["release_date"] > CUTOFF_DATE].tolist()
+
+    print(
+        "\nChecking direct pre-cutoff sequence similarity for "
+        f"{len(post_indices)} post-cutoff candidates "
+        f"(>={TESTB_MAX_PIDENT:.0%} identity, "
+        f">={TESTB_MIN_COVERAGE:.0%} target coverage)..."
     )
 
-    # Pre-cutoff proteins obviously belong to the
-    # pre-cutoff period themselves.
-    pre_mask = (
-        df["release_date"] <= CUTOFF_DATE
+    sequences = {
+        index: str(df.at[index, "sequence"] or "").strip()
+        for index in post_indices
+    }
+
+    # Search each distinct sequence once.
+    search_results = run_threaded(
+        query_precutoff_similarity,
+        sorted({sequence for sequence in sequences.values() if sequence}),
+        "Pre-cutoff sequence search",
     )
+
+    for index, sequence in sequences.items():
+
+        hit, identity, coverage, evalue, status = search_results.get(
+            sequence,
+            ("", 0.0, 0.0, 0.0, "api_error"),
+        )
+
+        df.at[index, "best_precutoff_hit"] = hit
+        df.at[index, "best_precutoff_pident"] = identity
+        df.at[index, "best_precutoff_coverage"] = coverage
+        df.at[index, "best_precutoff_evalue"] = evalue
+        df.at[index, "precutoff_search_status"] = status
+
+    post_status = df.loc[post_indices, "precutoff_search_status"]
+
+    print(
+        "Pre-cutoff sequence search statuses: "
+        f"{post_status.value_counts().to_dict()}"
+    )
+
+    unclassified = df.loc[post_indices][
+        ~post_status.isin(["similar_hit", "no_similar_hit"])
+    ]
+
+    if not unclassified.empty:
+        print(
+            f"WARNING: {len(unclassified)} post-cutoff candidate(s) could "
+            "not be classified and are excluded from Test A and Test B: "
+            + ", ".join(
+                f"{row.pdb_id} ({row.precutoff_search_status})"
+                for row in unclassified.itertuples()
+            )
+        )
 
     df.loc[
-        pre_mask,
-        "has_pre_cutoff_cluster_member",
-    ] = True
+        df["release_date"] <= CUTOFF_DATE,
+        "precutoff_search_status",
+    ] = "not_applicable_pre_cutoff"
 
     return df
 
@@ -1673,9 +1780,8 @@ def passes_filters(row):
     Decide whether a screened candidate may be sampled into a split.
 
     INCLUDE candidates are always eligible. FLAG candidates (which need
-    manual review) are eligible only where the configuration allows it:
-    by default in the pre-cutoff development/validation pool but not in
-    the locked post-cutoff test sets.
+    manual review) are eligible only where the configuration allows it.
+    By default they are excluded from every split.
     """
 
     if pd.isna(row["sequence_cluster"]):
@@ -1699,6 +1805,12 @@ def passes_filters(row):
 # SPLIT CREATION
 # ============================================================
 
+def nonempty_uniprots(df) -> set[str]:
+    """Set of the non-empty UniProt accessions in df."""
+    accessions = df["uniprot_accession"].fillna("").astype(str).str.strip()
+    return set(accessions[accessions != ""].tolist())
+
+
 def take_cluster_representatives(
     df,
     n,
@@ -1707,21 +1819,16 @@ def take_cluster_representatives(
     excluded_uniprots=None,
 ):
     """
-    Select at most one structure from each 30% sequence cluster and each
-    non-empty UniProt accession.
+    Select at most n structures, at most one from each 30% sequence
+    cluster and each non-empty UniProt accession, skipping any cluster or
+    accession already used.
     """
 
-    if excluded_clusters is None:
-        excluded_clusters = set()
-
-    if excluded_uniprots is None:
-        excluded_uniprots = set()
+    excluded_clusters = excluded_clusters or set()
+    excluded_uniprots = excluded_uniprots or set()
 
     uniprot_accessions = (
-        df["uniprot_accession"]
-        .fillna("")
-        .astype(str)
-        .str.strip()
+        df["uniprot_accession"].fillna("").astype(str).str.strip()
     )
 
     working = df[
@@ -1734,15 +1841,7 @@ def take_cluster_representatives(
 
     # Shuffle first so we do not always keep the same PDB
     # when a cluster or UniProt accession contains multiple candidates.
-    random_state = rng.randint(
-        0,
-        2**32 - 1,
-    )
-
-    working = working.sample(
-        frac=1,
-        random_state=random_state,
-    )
+    working = working.sample(frac=1, random_state=rng.randint(0, 2**32 - 1))
 
     working = working.drop_duplicates(
         subset=["sequence_cluster"],
@@ -1750,351 +1849,172 @@ def take_cluster_representatives(
     )
 
     working_uniprots = (
-        working["uniprot_accession"]
-        .fillna("")
-        .astype(str)
-        .str.strip()
+        working["uniprot_accession"].fillna("").astype(str).str.strip()
     )
 
     duplicate_uniprot = (
-        working_uniprots.ne("")
-        & working_uniprots.duplicated(keep="first")
+        working_uniprots.ne("") & working_uniprots.duplicated(keep="first")
     )
 
-    working = working[
-        ~duplicate_uniprot
-    ].copy()
+    working = working[~duplicate_uniprot]
 
-    random_state = rng.randint(
-        0,
-        2**32 - 1,
-    )
-
-    working = working.sample(
-        frac=1,
-        random_state=random_state,
-    )
+    # Reshuffle so the order no longer reflects the de-duplication.
+    working = working.sample(frac=1, random_state=rng.randint(0, 2**32 - 1))
 
     return working.head(n).copy()
 
 
 def create_splits(df):
     """
-    Create:
-        development
-        validation
-        test_a
-        test_b
+    Create the development, validation, Test A, and Test B splits, with no
+    30%-cluster or non-empty UniProt overlap between them.
 
-    with no 30%-cluster or non-empty UniProt overlap between the selected sets.
+      - development / validation: pre-cutoff proteins
+      - Test A: post-cutoff proteins with a pre-cutoff PDB match at >=30%
+        identity over >=80% of the target (precutoff_search_status
+        "similar_hit")
+      - Test B: post-cutoff proteins with no such match ("no_similar_hit")
 
-    Supervisor-selected priority targets are guaranteed inclusion.
-    A priority target with a forced_split goes to that split. Other
-    post-cutoff priority targets are assigned as:
-      - Test B if their 30% cluster has no pre-cutoff PDB member
-      - Test A otherwise
-
-    Their sequence clusters and UniProt accessions are reserved before
-    development/validation sampling so the selected splits remain disjoint.
+    Priority targets (special proteins selected for investigation) are
+    always included. One with a forced_split goes to that split; any other
+    post-cutoff priority target follows the Test A / Test B rule above.
+    Their clusters and UniProt accessions are reserved first, so no other
+    split can contain a protein similar to them.
     """
 
     rng = random.Random(RANDOM_SEED)
 
-    pre = df[
-        df["release_date"] <= CUTOFF_DATE
-    ].copy()
+    pre = df[df["release_date"] <= CUTOFF_DATE].copy()
+    post = df[df["release_date"] > CUTOFF_DATE].copy()
+    priority = df[df["priority_target"] == True].copy()
 
-    post = df[
-        df["release_date"] > CUTOFF_DATE
-    ].copy()
-
-    priority = df[
-        df["priority_target"] == True
-    ].copy()
-
-    priority_clusters = set(
-        priority["sequence_cluster"]
-        .dropna()
-        .tolist()
-    )
-
-    priority_uniprots = set(
-        priority["uniprot_accession"]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .loc[lambda values: values != ""]
-        .tolist()
-    )
+    priority_clusters = set(priority["sequence_cluster"].dropna().tolist())
+    priority_uniprots = nonempty_uniprots(priority)
 
     # --------------------------------------------------------
-    # DEVELOPMENT
+    # DEVELOPMENT AND VALIDATION
     # --------------------------------------------------------
 
-    # Reserve all priority clusters so no pre-cutoff development
-    # protein overlaps at 30% identity with a required test target.
+    pre_pool = pre[pre["priority_target"] != True]
+
     development = take_cluster_representatives(
-        pre[
-            pre["priority_target"] != True
-        ],
+        pre_pool,
         N_DEVELOPMENT,
         rng,
         excluded_clusters=priority_clusters,
         excluded_uniprots=priority_uniprots,
     )
 
-    used_clusters = (
-        set(development["sequence_cluster"])
-        | priority_clusters
-    )
-
-    used_uniprots = (
-        set(
-            development["uniprot_accession"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .loc[lambda values: values != ""]
-            .tolist()
-        )
-        | priority_uniprots
-    )
-
-    # --------------------------------------------------------
-    # VALIDATION
-    # --------------------------------------------------------
+    used_clusters = set(development["sequence_cluster"]) | priority_clusters
+    used_uniprots = nonempty_uniprots(development) | priority_uniprots
 
     validation = take_cluster_representatives(
-        pre[
-            pre["priority_target"] != True
-        ],
+        pre_pool,
         N_VALIDATION,
         rng,
         excluded_clusters=used_clusters,
         excluded_uniprots=used_uniprots,
     )
 
-    used_clusters.update(
-        validation["sequence_cluster"]
-    )
-
-    used_uniprots.update(
-        validation["uniprot_accession"]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .loc[lambda values: values != ""]
-        .tolist()
-    )
+    used_clusters.update(validation["sequence_cluster"])
+    used_uniprots.update(nonempty_uniprots(validation))
 
     # --------------------------------------------------------
-    # REQUIRED POST-CUTOFF PRIORITY TARGETS
+    # POST-CUTOFF PRIORITY TARGETS
     # --------------------------------------------------------
 
-    priority_post = post[
-        post["priority_target"] == True
-    ].copy()
+    priority_post = post[post["priority_target"] == True].copy()
+    unforced = priority_post["forced_split"].isna()
+    status = priority_post["precutoff_search_status"]
+
+    unresolved_priority = priority_post[
+        unforced & ~status.isin(["similar_hit", "no_similar_hit"])
+    ]
+
+    if not unresolved_priority.empty:
+        raise RuntimeError(
+            "Could not classify priority target(s) with the direct "
+            "30/80 pre-cutoff sequence search: "
+            + ", ".join(unresolved_priority["pdb_id"].tolist())
+        )
 
     priority_test_b = priority_post[
         (priority_post["forced_split"] == "test_b")
-        | (
-            priority_post["forced_split"].isna()
-            & (
-                priority_post[
-                    "has_pre_cutoff_cluster_member"
-                ]
-                == False
-            )
-        )
+        | (unforced & (status == "no_similar_hit"))
     ].copy()
 
     priority_test_a = priority_post[
-        ~priority_post.index.isin(
-            priority_test_b.index
-        )
+        (priority_post["forced_split"] == "test_a")
+        | (unforced & (status == "similar_hit"))
     ].copy()
 
     # --------------------------------------------------------
-    # TEST B
-    #
-    # Post-cutoff AND no member of its 30% sequence cluster
-    # existed before the cutoff.
+    # TEST B: post-cutoff, with no pre-cutoff PDB sequence reaching
+    # >=30% identity over >=80% of the target.
     # --------------------------------------------------------
 
     difficult_pool = post[
-        (
-            post[
-                "has_pre_cutoff_cluster_member"
-            ]
-            == False
-        )
-        & (
-            post["priority_target"] != True
-        )
-    ].copy()
-
-    n_test_b_remaining = max(
-        N_TEST_B - len(priority_test_b),
-        0,
-    )
+        (post["precutoff_search_status"] == "no_similar_hit")
+        & (post["priority_target"] != True)
+    ]
 
     sampled_test_b = take_cluster_representatives(
         difficult_pool,
-        n_test_b_remaining,
+        max(N_TEST_B - len(priority_test_b), 0),
         rng,
         excluded_clusters=used_clusters,
         excluded_uniprots=used_uniprots,
     )
 
-    test_b = pd.concat(
-        [
-            priority_test_b,
-            sampled_test_b,
-        ],
-        axis=0,
-    )
+    test_b = pd.concat([priority_test_b, sampled_test_b], axis=0)
 
-    used_clusters.update(
-        test_b["sequence_cluster"]
-        .dropna()
-        .tolist()
-    )
-
-    used_uniprots.update(
-        test_b["uniprot_accession"]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .loc[lambda values: values != ""]
-        .tolist()
-    )
+    used_clusters.update(test_b["sequence_cluster"].dropna().tolist())
+    used_uniprots.update(nonempty_uniprots(test_b))
 
     # --------------------------------------------------------
-    # TEST A
-    #
-    # Post-cutoff temporal proteins.
-    # Keep Test A separate from Test B.
+    # TEST A: post-cutoff, with a pre-cutoff PDB sequence reaching
+    # >=30% identity over >=80% of the target.
     # --------------------------------------------------------
 
     temporal_pool = post[
-        (
-            ~post.index.isin(test_b.index)
-        )
-        & (
-            post["priority_target"] != True
-        )
-    ].copy()
-
-    n_test_a_remaining = max(
-        N_TEST_A - len(priority_test_a),
-        0,
-    )
+        (post["precutoff_search_status"] == "similar_hit")
+        & (post["priority_target"] != True)
+    ]
 
     sampled_test_a = take_cluster_representatives(
         temporal_pool,
-        n_test_a_remaining,
+        max(N_TEST_A - len(priority_test_a), 0),
         rng,
         excluded_clusters=used_clusters,
         excluded_uniprots=used_uniprots,
     )
 
-    test_a = pd.concat(
-        [
-            priority_test_a,
-            sampled_test_a,
-        ],
-        axis=0,
-    )
+    test_a = pd.concat([priority_test_a, sampled_test_a], axis=0)
 
     # --------------------------------------------------------
     # Assign split names
     # --------------------------------------------------------
 
     df = df.copy()
+    df["training_or_test_split"] = "unassigned"
 
-    df["training_or_test_split"] = (
-        "unassigned"
-    )
+    splits = {
+        "development": development,
+        "validation": validation,
+        "test_a": test_a,
+        "test_b": test_b,
+    }
 
-    df.loc[
-        development.index,
-        "training_or_test_split",
-    ] = "development"
+    for name, split in splits.items():
+        df.loc[split.index, "training_or_test_split"] = name
 
-    df.loc[
-        validation.index,
-        "training_or_test_split",
-    ] = "validation"
-
-    df.loc[
-        test_a.index,
-        "training_or_test_split",
-    ] = "test_a"
-
-    df.loc[
-        test_b.index,
-        "training_or_test_split",
-    ] = "test_b"
-
-    development = df.loc[
-        development.index
-    ].copy()
-
-    validation = df.loc[
-        validation.index
-    ].copy()
-
-    test_a = df.loc[
-        test_a.index
-    ].copy()
-
-    test_b = df.loc[
-        test_b.index
-    ].copy()
-
-    return (
-        df,
-        development,
-        validation,
-        test_a,
-        test_b,
-    )
-
-
+    # Return the splits as rows of df so they carry the split name.
+    return (df, *(df.loc[split.index].copy() for split in splits.values()))
 
 
 # ============================================================
 # MAIN
 # ============================================================
-
-def run_threaded(function, items, label: str):
-    """Run function(item) for every item with MAX_WORKERS threads."""
-
-    results = {}
-
-    with ThreadPoolExecutor(
-        max_workers=MAX_WORKERS
-    ) as executor:
-
-        futures = {
-            executor.submit(function, item): item
-            for item in items
-        }
-
-        for completed, future in enumerate(
-            as_completed(futures),
-            start=1,
-        ):
-            results[futures[future]] = future.result()
-
-            if (
-                completed % 50 == 0
-                or completed == len(futures)
-            ):
-                print(f"{label}: {completed}/{len(futures)}")
-
-    return results
-
 
 def main():
 
@@ -2109,26 +2029,12 @@ def main():
     # --------------------------------------------------------
 
     print("\nSearching pre-cutoff PDB entries...")
-
-    pre_ids = search_candidate_pdb_ids(
-        pre_cutoff=True
-    )
-
-    print(
-        f"Found {len(pre_ids):,} searchable "
-        f"pre-cutoff entries."
-    )
+    pre_ids = search_candidate_pdb_ids(pre_cutoff=True)
+    print(f"Found {len(pre_ids):,} searchable pre-cutoff entries.")
 
     print("\nSearching post-cutoff PDB entries...")
-
-    post_ids = search_candidate_pdb_ids(
-        pre_cutoff=False
-    )
-
-    print(
-        f"Found {len(post_ids):,} searchable "
-        f"post-cutoff entries."
-    )
+    post_ids = search_candidate_pdb_ids(pre_cutoff=False)
+    print(f"Found {len(post_ids):,} searchable post-cutoff entries.")
 
     # Sort IDs before seeded sampling so the same search results
     # produce the same sampled candidates across runs.
@@ -2136,27 +2042,13 @@ def main():
     post_ids = sorted(post_ids)
 
     if len(pre_ids) > N_PRE_CANDIDATES:
-        pre_ids = rng.sample(
-            pre_ids,
-            N_PRE_CANDIDATES,
-        )
+        pre_ids = rng.sample(pre_ids, N_PRE_CANDIDATES)
 
     if len(post_ids) > N_POST_CANDIDATES:
-        post_ids = rng.sample(
-            post_ids,
-            N_POST_CANDIDATES,
-        )
+        post_ids = rng.sample(post_ids, N_POST_CANDIDATES)
 
     # Remove priority targets from the random pool if they happened
     # to be sampled already. They will be added explicitly below.
-    priority_ids = set(PRIORITY_TARGETS)
-
-    pdb_ids = [
-        pdb_id
-        for pdb_id in (pre_ids + post_ids)
-        if pdb_id not in priority_ids
-    ]
-
     metadata_jobs = [
         {
             "pdb_id": pdb_id,
@@ -2165,7 +2057,8 @@ def main():
             "priority_name": "",
             "forced_split": None,
         }
-        for pdb_id in pdb_ids
+        for pdb_id in pre_ids + post_ids
+        if pdb_id not in PRIORITY_TARGETS
     ]
 
     for pdb_id, spec in PRIORITY_TARGETS.items():
@@ -2180,19 +2073,15 @@ def main():
         )
 
     print(
-        f"\nRetrieving metadata for "
-        f"{len(metadata_jobs)} candidates "
-        f"(including {len(PRIORITY_TARGETS)} "
-        f"required priority targets)..."
+        f"\nRetrieving metadata for {len(metadata_jobs)} candidates "
+        f"(including {len(PRIORITY_TARGETS)} required priority targets)..."
     )
 
     # --------------------------------------------------------
     # 2. Download RCSB metadata
     # --------------------------------------------------------
 
-    entries = fetch_entry_metadata(
-        job["pdb_id"] for job in metadata_jobs
-    )
+    entries = fetch_entry_metadata(job["pdb_id"] for job in metadata_jobs)
 
     candidates = []
 
@@ -2204,15 +2093,11 @@ def main():
         if entry is None:
             if job["priority_target"]:
                 raise RuntimeError(
-                    "Failed to retrieve required priority target: "
-                    + pdb_id
+                    f"Failed to retrieve required priority target: {pdb_id}"
                 )
             continue
 
-        entity, instance = select_entity(
-            entry,
-            job["target_chain_id"],
-        )
+        entity, instance = select_entity(entry, job["target_chain_id"])
 
         if entity is None:
             continue
@@ -2230,9 +2115,7 @@ def main():
         candidates.append((row, entry, entity))
 
     if not candidates:
-        raise RuntimeError(
-            "No candidate structures were retrieved."
-        )
+        raise RuntimeError("No candidate structures were retrieved.")
 
     # --------------------------------------------------------
     # 3. UniProt and OPM annotations
@@ -2272,26 +2155,19 @@ def main():
 
     for row, entry, entity in candidates:
 
-        uniprot = uniprot_annotations.get(
-            row["uniprot_accession"]
-        )
-
         row.update(
             screen_candidate(
                 row,
                 entry,
                 entity,
-                uniprot,
+                uniprot_annotations.get(row["uniprot_accession"]),
                 opm_hits.get(row["pdb_id"]),
             )
         )
 
-        # Supervisor-selected targets are deliberate exceptions; keep
-        # the automated verdicts but make the override explicit.
-        if (
-            row["priority_target"]
-            and row["screening_decision"] != "INCLUDE"
-        ):
+        # Priority targets are kept whatever the automated screen says;
+        # record that they were kept despite the screen.
+        if row["priority_target"] and row["screening_decision"] != "INCLUDE":
             row["flag_reasons"] = "; ".join(
                 x
                 for x in (
@@ -2311,11 +2187,7 @@ def main():
         .reset_index(drop=True)
     )
 
-    decision_counts = (
-        all_candidates["screening_decision"]
-        .value_counts()
-        .to_dict()
-    )
+    decision_counts = all_candidates["screening_decision"].value_counts()
 
     print(
         "\nBiological screen: "
@@ -2329,28 +2201,17 @@ def main():
     # 5. Add 30% sequence clusters
     # --------------------------------------------------------
 
-    (
-        entity_to_cluster,
-        cluster_to_entities,
-    ) = download_sequence_clusters()
+    entity_to_cluster, cluster_snapshot = download_sequence_clusters()
 
-    all_candidates[
-        "sequence_cluster"
-    ] = (
-        all_candidates[
-            "polymer_entity_id"
-        ]
-        .str.upper()
-        .map(entity_to_cluster)
+    all_candidates["sequence_cluster"] = (
+        all_candidates["polymer_entity_id"].str.upper().map(entity_to_cluster)
     )
 
     # --------------------------------------------------------
     # 6. Apply filters
     # --------------------------------------------------------
 
-    all_candidates[
-        "passes_standard_filters"
-    ] = all_candidates.apply(
+    all_candidates["passes_standard_filters"] = all_candidates.apply(
         passes_filters,
         axis=1,
     )
@@ -2359,82 +2220,46 @@ def main():
     # 7. Save all candidates and the manual review queue
     # --------------------------------------------------------
 
-    all_path = (
-        DATASET_DIR
-        / "all_candidates.csv"
-    )
-
-    all_candidates.to_csv(
-        all_path,
-        index=False,
-    )
-
-    print(
-        f"\nSaved screened candidates:\n{all_path}"
-    )
+    all_path = DATASET_DIR / "all_candidates.csv"
+    all_candidates.to_csv(all_path, index=False)
+    print(f"\nSaved screened candidates:\n{all_path}")
 
     review_queue = all_candidates[
         (all_candidates["screening_decision"] == "FLAG")
         | all_candidates["priority_target"]
     ]
 
-    review_queue.to_csv(
-        DATASET_DIR
-        / "review_queue.csv",
-        index=False,
-    )
+    review_queue.to_csv(DATASET_DIR / "review_queue.csv", index=False)
 
-    # Standard benchmark candidates must pass all filters.
-    # Supervisor-selected targets are deliberate exceptions and are
-    # force-included while retaining passes_standard_filters=False
-    # when they fall outside the general benchmark criteria.
-    filter_mask = (
-        all_candidates[
-            "passes_standard_filters"
-        ]
-        | all_candidates[
-            "priority_target"
-        ]
-    )
-
+    # Standard benchmark candidates must pass all filters. Priority targets
+    # are always included, keeping passes_standard_filters=False when they
+    # fall outside the general benchmark criteria.
     filtered = (
         all_candidates[
-            filter_mask
+            all_candidates["passes_standard_filters"]
+            | all_candidates["priority_target"]
         ]
         .copy()
         .reset_index(drop=True)
     )
 
-    standard_pass_count = int(
-        all_candidates[
-            "passes_standard_filters"
-        ].sum()
-    )
-
     print(
         f"\nPassed standard filters: "
-        f"{standard_pass_count}/"
+        f"{int(all_candidates['passes_standard_filters'].sum())}/"
         f"{len(all_candidates)}"
     )
 
     print(
         "Force-included priority targets: "
-        + ", ".join(
-            sorted(PRIORITY_TARGETS)
-        )
+        + ", ".join(sorted(PRIORITY_TARGETS))
     )
 
     # --------------------------------------------------------
-    # 8. Determine whether post-cutoff clusters existed
-    #    before OpenFold3's cutoff
+    # 8. Classify post-cutoff candidates as Test A or Test B
+    #    by direct sequence search against pre-cutoff PDB
     # --------------------------------------------------------
 
-    filtered = (
-        annotate_pre_cutoff_cluster_members(
-            filtered,
-            cluster_to_entities,
-        )
-    )
+    filtered = annotate_precutoff_similarity(filtered)
 
     # --------------------------------------------------------
     # 9. Create dataset splits
@@ -2448,7 +2273,7 @@ def main():
         test_b,
     ) = create_splits(filtered)
 
-    # Supervisor-required placements.
+    # Check that priority targets with a forced_split landed there.
     for pdb_id, spec in PRIORITY_TARGETS.items():
         split = spec.get("forced_split")
         placed = filtered.loc[
@@ -2466,35 +2291,17 @@ def main():
     # 10. Save CSV files
     # --------------------------------------------------------
 
-    filtered.to_csv(
-        DATASET_DIR
-        / "filtered_candidates.csv",
-        index=False,
-    )
+    filtered.to_csv(DATASET_DIR / "filtered_candidates.csv", index=False)
 
-    development.to_csv(
-        DATASET_DIR
-        / "development.csv",
-        index=False,
-    )
+    splits = {
+        "development": development,
+        "validation": validation,
+        "test_a": test_a,
+        "test_b": test_b,
+    }
 
-    validation.to_csv(
-        DATASET_DIR
-        / "validation.csv",
-        index=False,
-    )
-
-    test_a.to_csv(
-        DATASET_DIR
-        / "test_a.csv",
-        index=False,
-    )
-
-    test_b.to_csv(
-        DATASET_DIR
-        / "test_b.csv",
-        index=False,
-    )
+    for name, split in splits.items():
+        split.to_csv(DATASET_DIR / f"{name}.csv", index=False)
 
     # Random subset of automatically accepted, split-assigned proteins to
     # check by hand that the filters are behaving sensibly.
@@ -2512,19 +2319,19 @@ def main():
     manual_sample["manual_notes"] = ""
 
     manual_sample.to_csv(
-        DATASET_DIR
-        / "manual_inspection_sample.csv",
+        DATASET_DIR / "manual_inspection_sample.csv",
         index=False,
     )
 
     # Record the benchmark configuration and SHA-256 hashes of the split
     # files, so any later change to a locked test set is detectable.
-    split_files = {
-        name: DATASET_DIR / f"{name}.csv"
-        for name in ("development", "validation", "test_a", "test_b")
-    }
-
     manifest = {
+        # Provenance. Both the PDB and the RCSB cluster file change over
+        # time, so the hashes below only certify a rebuild against the same
+        # inputs if these are recorded too.
+        "build_date": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "sequence_cluster_url": CLUSTER_30_URL,
+        "sequence_cluster_snapshot": cluster_snapshot,
         "cutoff_date": CUTOFF_DATE,
         "random_seed": RANDOM_SEED,
         "length_range": [MIN_LENGTH, MAX_LENGTH],
@@ -2532,9 +2339,7 @@ def main():
         "max_resolution_angstrom": MAX_RESOLUTION,
         "allowed_methods": sorted(ALLOWED_METHODS),
         "max_unobserved_segment": MAX_UNOBSERVED_SEGMENT,
-        "max_disorder_annotation_fraction": (
-            MAX_DISORDER_ANNOTATION_FRACTION
-        ),
+        "max_disorder_annotation_fraction": MAX_DISORDER_ANNOTATION_FRACTION,
         "large_ligand": [LARGE_LIGAND_MW, LARGE_LIGAND_HEAVY_ATOMS],
         "medium_ligand": [MEDIUM_LIGAND_MW, MEDIUM_LIGAND_HEAVY_ATOMS],
         "allow_flagged_in_dev_val": ALLOW_FLAGGED_IN_DEV_VAL,
@@ -2542,16 +2347,15 @@ def main():
         "n_pre_candidates": N_PRE_CANDIDATES,
         "n_post_candidates": N_POST_CANDIDATES,
         "sequence_cluster_identity": 0.30,
+        "test_b_max_sequence_identity": TESTB_MAX_PIDENT,
+        "test_b_min_target_coverage": TESTB_MIN_COVERAGE,
         "priority_targets": PRIORITY_TARGETS,
-        "split_sizes": {
-            "development": len(development),
-            "validation": len(validation),
-            "test_a": len(test_a),
-            "test_b": len(test_b),
-        },
+        "split_sizes": {name: len(split) for name, split in splits.items()},
         "sha256": {
-            name: hashlib.sha256(path.read_bytes()).hexdigest()
-            for name, path in split_files.items()
+            name: hashlib.sha256(
+                (DATASET_DIR / f"{name}.csv").read_bytes()
+            ).hexdigest()
+            for name in splits
         },
     }
 
@@ -2570,44 +2374,17 @@ def main():
     print("DATASET COMPLETE")
     print("=" * 60)
 
-    print(
-        f"All candidates:       "
-        f"{len(all_candidates)}"
-    )
+    n_flagged = int((all_candidates["screening_decision"] == "FLAG").sum())
 
-    print(
-        f"Review queue (FLAG):  "
-        f"{int((all_candidates['screening_decision'] == 'FLAG').sum())}"
-    )
+    print(f"All candidates:       {len(all_candidates)}")
+    print(f"Review queue (FLAG):  {n_flagged}")
+    print(f"Filtered candidates:  {len(filtered)}")
+    print(f"Development:          {len(development)}")
+    print(f"Validation:           {len(validation)}")
+    print(f"Test A:               {len(test_a)}")
+    print(f"Test B:               {len(test_b)}")
 
-    print(
-        f"Filtered candidates:  "
-        f"{len(filtered)}"
-    )
-
-    print(
-        f"Development:          "
-        f"{len(development)}"
-    )
-
-    print(
-        f"Validation:           "
-        f"{len(validation)}"
-    )
-
-    print(
-        f"Test A:               "
-        f"{len(test_a)}"
-    )
-
-    print(
-        f"Test B:               "
-        f"{len(test_b)}"
-    )
-
-    priority_summary = filtered[
-        filtered["priority_target"] == True
-    ][
+    priority_summary = filtered[filtered["priority_target"] == True][
         [
             "pdb_id",
             "priority_name",
@@ -2615,46 +2392,28 @@ def main():
             "experimental_method",
             "forced_split",
             "screening_decision",
-            "has_pre_cutoff_cluster_member",
+            "precutoff_search_status",
+            "best_precutoff_pident",
+            "best_precutoff_coverage",
             "training_or_test_split",
         ]
     ]
 
     print("\nPriority targets:")
-    print(
-        priority_summary.to_string(
-            index=False
-        )
-    )
+    print(priority_summary.to_string(index=False))
 
-    print(
-        "\nFiles saved in:"
-        f"\n{DATASET_DIR}"
-    )
+    print(f"\nFiles saved in:\n{DATASET_DIR}")
 
-    if len(development) < N_DEVELOPMENT:
-        print(
-            "\nWARNING: Development set is "
-            "smaller than requested."
-        )
+    targets = {
+        "Development set": (development, N_DEVELOPMENT),
+        "Validation set": (validation, N_VALIDATION),
+        "Test A": (test_a, N_TEST_A),
+        "Test B": (test_b, N_TEST_B),
+    }
 
-    if len(validation) < N_VALIDATION:
-        print(
-            "WARNING: Validation set is "
-            "smaller than requested."
-        )
-
-    if len(test_a) < N_TEST_A:
-        print(
-            "WARNING: Test A is smaller "
-            "than requested."
-        )
-
-    if len(test_b) < N_TEST_B:
-        print(
-            "WARNING: Test B is smaller "
-            "than requested."
-        )
+    for label, (split, requested) in targets.items():
+        if len(split) < requested:
+            print(f"WARNING: {label} is smaller than requested.")
 
 
 if __name__ == "__main__":
