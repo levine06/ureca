@@ -1,0 +1,20 @@
+-e git+https://github.com/levine06/ureca@419be5510f9243b2cb4c15d34e07561f878f556c#egg=accessfold&subdirectory=stage2
+biopython==1.88
+biotite==1.7.1
+biotraj==1.2.2
+certifi==2026.7.22
+charset-normalizer==3.5.2
+freesasa==2.2.1
+idna==3.20
+iniconfig==2.3.0
+msgpack==1.2.3
+networkx==3.7
+numpy==2.5.3
+packaging==26.3
+PeptideBuilder==1.1.0
+pluggy==1.6.0
+Pygments==2.21.0
+pytest==9.1.1
+requests==2.34.2
+scipy==1.18.1
+urllib3==2.8.0

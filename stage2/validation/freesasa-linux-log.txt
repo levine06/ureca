@@ -1,0 +1,14 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0 -- /mnt/c/Users/mabel/ureca/stage2/.venv-freesasa-linux/bin/python
+cachedir: .pytest_cache
+rootdir: /mnt/c/Users/mabel/ureca/stage2
+configfile: pyproject.toml
+collecting ... collected 16 items / 12 deselected / 4 selected
+
+tests/test_physical_sanity.py::test_agrees_with_freesasa_lee_richards_at_every_radius[1.4] PASSED [ 25%]
+tests/test_physical_sanity.py::test_agrees_with_freesasa_lee_richards_at_every_radius[2.5] PASSED [ 50%]
+tests/test_physical_sanity.py::test_agrees_with_freesasa_lee_richards_at_every_radius[4.0] PASSED [ 75%]
+tests/test_physical_sanity.py::test_agrees_with_freesasa_lee_richards_at_every_radius[6.0] PASSED [100%]
+
+- generated xml file: /mnt/c/Users/mabel/ureca/stage2/validation/freesasa-linux-results.xml -
+======================= 4 passed, 12 deselected in 1.67s =======================
