@@ -17,7 +17,7 @@ The tested total-residue accessibility workflow is suitable for continued method
 | Independent reference-winner measurement | All 80 measurements passed; maximum relative difference 0.483% | step2_pymol.csv; test_step2.py |
 | Existing reference-table suite | 9 tests passed | RESULTS.md |
 
-The five skipped package tests require optional FreeSASA or an external Dunbrack library. Bio.PDB and AccessFold use similar sampling grids, so their agreement supplies less algorithmic independence than the PyMOL comparison.
+The original five skips required optional FreeSASA or an external Dunbrack library. The real-library Dunbrack test was subsequently run with a user-supplied library and passed for LEU and SER at probe 1.4 Angstrom; provenance and limits are recorded in RESULTS.md. Four FreeSASA checks remain unrun: a Windows installation attempt reached compilation but failed for lack of Microsoft Visual C++ 14.0 or greater. This is an environmental block, not a failed accessibility comparison. Reproduction commands are in RESULTS.md. The supplementary Dunbrack check does not change the original historical suite count or bundled reference tables. Bio.PDB and AccessFold use similar sampling grids, so their agreement supplies less algorithmic independence than the PyMOL comparison.
 
 ## Tested inputs and settings
 

@@ -65,3 +65,24 @@ Step 2 is complete within its stated scope: smaller-probe absolute-area agreemen
 ## Portability
 
 Scripts now locate fixtures relative to their own files. The 80 reference records use relative paths, and generation preserves this convention. START_HERE.py provides a portable PyMOL entry point selected through File > Run Script. The legacy PML launcher requires the validation folder as working directory. Instructions target stage2/validation and use the user's chosen Python environment rather than a machine-specific virtual environment. Step 2 saved-result tests passed after copying their inputs to a separate stage2/validation directory. The revised PyMOL launchers have been syntax-checked, but have not yet been executed in a different PyMOL installation.
+
+## Optional real Dunbrack library check
+
+The user supplied ALL.bbdep.rotamers.lib after selecting the Simple Mode 18-standard-residue default 5%-stepdown download. Its SHA256 is 71c16926a4140604e97f1c3c2625dc96a87a13c059ec565cbcacbed46265fe4a. The library remains an external dependency and is not copied into the validation archive.
+
+The previously skipped test_real_library_gives_maxima_close_to_staggered_grid now passed (1 selected test passed). It compares LEU and SER reference maxima using library-mean rotamers versus the staggered grid at probe 1.4 Angstrom, with a coarse 30-degree backbone grid, 500 sampling points, and 2000 refinement points. The unchanged criterion is 0.85 < library_max / staggered_max <= 1.02. This is a limited sensitivity check, not an all-residue/all-radius table rebuild or evidence that the library is needed for ordinary SASA calculations. The bundled references are unchanged. The original suite result of 87 passed and 5 skipped is historical; this additional run closes its Dunbrack skip. Four optional FreeSASA checks remain unrun in this environment.
+
+## Optional FreeSASA installation attempt
+
+Installation was attempted in the isolated Windows Python 3.12 validation environment using pip with --use-pep517. After a cache-permission failure, a --no-cache-dir retry reached compilation but failed because Microsoft Visual C++ 14.0 or greater is required and unavailable. FreeSASA was not installed, and its four tests were not run; this is an environment limitation rather than an observed AccessFold test failure. No system compiler was installed and no reference tables or package source were changed.
+
+Run the optional checks from stage2 in a Python environment where FreeSASA can be installed (for example a Linux environment with the required compiler tooling):
+
+```text
+python -m pip install -e ".[test]"
+python -m pip install freesasa --use-pep517 --no-cache-dir
+python -c "import freesasa; print(freesasa.__file__)"
+python -m pytest tests/test_physical_sanity.py -k freesasa -v -rs
+```
+
+Confirm four passed, rather than four skipped. The import check prevents treating an absent optional dependency as a completed validation. On this Windows installation, compiler tooling is required before repeating these commands. The check uses FreeSASA Lee-Richards slicing with matched element radii to provide a different numerical algorithm from point sampling.
