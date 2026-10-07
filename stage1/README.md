@@ -389,6 +389,8 @@ stage1/datasets/
 
 The script queries RCSB PDB, UniProt, and OPM, so it needs network access to `search.rcsb.org`, `data.rcsb.org`, `cdn.rcsb.org`, `rest.uniprot.org`, and `opm-assets.storage.googleapis.com`.
 
+**Runtime:** a full run takes about 6 minutes (6m18s wall-clock, with about 40 s of CPU time). Most of that is spent waiting on network requests to the services above, so the runtime varies with server load and connection speed.
+
 The script requires the following Python packages:
 
 ```text
