@@ -1,0 +1,380 @@
+{
+  "extra": {
+    "config": {
+      "batch_size": 48,
+      "clash_scale": 0.8,
+      "dtype": "float32",
+      "flank": "G",
+      "n_points": 1000,
+      "n_points_refine": 10000,
+      "phi_psi_step": 10.0,
+      "radii_table": "bondi",
+      "top_m": 24
+    },
+    "differs_from_paper": [
+      "PeptideBuilder geometry, not the paper's own mined values",
+      "staggered chi grid instead of the Dunbrack library (unless `rotamers` says otherwise)",
+      "no random subsampling of rotamers",
+      "steric filter with clash_scale",
+      "this package's SASA engine and radii table instead of DSSP"
+    ],
+    "flank_backbone": "PeptideBuilder defaults (phi=-120, psi=140); no OXT on the C-terminal residue",
+    "geometry": "PeptideBuilder 1.1.0 default bond lengths/angles (averages over crystal structures)",
+    "method": "Gly-X-Gly tripeptide maximum ASA after Tien et al. 2013 PLoS ONE 8:e80635",
+    "per_residue": {
+      "ALA": {
+        "argmax": {
+          "chi": [],
+          "phi": 60.0,
+          "psi": -80.0
+        },
+        "coarse_max": 472.5085877890622,
+        "n_clash_rejected": 606,
+        "n_conformers": 1296,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 464.6127659340387
+      },
+      "ARG": {
+        "argmax": {
+          "chi": [
+            -60.0,
+            180.0,
+            -60.0,
+            180.0
+          ],
+          "phi": 70.0,
+          "psi": -50.0
+        },
+        "coarse_max": 825.156424605499,
+        "n_clash_rejected": 82025,
+        "n_conformers": 104976,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 790.3435806412315
+      },
+      "ASN": {
+        "argmax": {
+          "chi": [
+            -60.0,
+            -30.0
+          ],
+          "phi": 70.0,
+          "psi": -50.0
+        },
+        "coarse_max": 630.051170588533,
+        "n_clash_rejected": 31820,
+        "n_conformers": 46656,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 609.5722779026923
+      },
+      "ASP": {
+        "argmax": {
+          "chi": [
+            -60.0,
+            120.0
+          ],
+          "phi": 70.0,
+          "psi": -50.0
+        },
+        "coarse_max": 625.1295000152996,
+        "n_clash_rejected": 15599,
+        "n_conformers": 23328,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 606.8410110280655
+      },
+      "CYS": {
+        "argmax": {
+          "chi": [
+            -60.0
+          ],
+          "phi": 60.0,
+          "psi": -80.0
+        },
+        "coarse_max": 569.9921764140267,
+        "n_clash_rejected": 2196,
+        "n_conformers": 3888,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 559.0048536577972
+      },
+      "GLN": {
+        "argmax": {
+          "chi": [
+            -60.0,
+            180.0,
+            120.0
+          ],
+          "phi": 70.0,
+          "psi": -50.0
+        },
+        "coarse_max": 709.4617572437179,
+        "n_clash_rejected": 102535,
+        "n_conformers": 139968,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 683.5976939100193
+      },
+      "GLU": {
+        "argmax": {
+          "chi": [
+            -60.0,
+            180.0,
+            120.0
+          ],
+          "phi": 70.0,
+          "psi": -50.0
+        },
+        "coarse_max": 702.3598201122563,
+        "n_clash_rejected": 50822,
+        "n_conformers": 69984,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 678.1082876306582
+      },
+      "GLY": {
+        "argmax": {
+          "chi": [],
+          "phi": -50.0,
+          "psi": -10.0
+        },
+        "coarse_max": 398.93988189445855,
+        "n_clash_rejected": 356,
+        "n_conformers": 1296,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 380.27722424589905
+      },
+      "HIS": {
+        "argmax": {
+          "chi": [
+            -60.0,
+            120.0
+          ],
+          "phi": 70.0,
+          "psi": -60.0
+        },
+        "coarse_max": 702.3458928037045,
+        "n_clash_rejected": 30768,
+        "n_conformers": 46656,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 685.556599074655
+      },
+      "ILE": {
+        "argmax": {
+          "chi": [
+            -60.0,
+            180.0
+          ],
+          "phi": 60.0,
+          "psi": -80.0
+        },
+        "coarse_max": 659.8532283057182,
+        "n_clash_rejected": 8962,
+        "n_conformers": 11664,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 643.1895234626414
+      },
+      "LEU": {
+        "argmax": {
+          "chi": [
+            -60.0,
+            180.0
+          ],
+          "phi": 60.0,
+          "psi": -80.0
+        },
+        "coarse_max": 660.5806163324486,
+        "n_clash_rejected": 8746,
+        "n_conformers": 11664,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 647.9092992070008
+      },
+      "LYS": {
+        "argmax": {
+          "chi": [
+            -60.0,
+            180.0,
+            -60.0,
+            180.0
+          ],
+          "phi": 70.0,
+          "psi": -50.0
+        },
+        "coarse_max": 734.9802382980889,
+        "n_clash_rejected": 77874,
+        "n_conformers": 104976,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 704.7877039246799
+      },
+      "MET": {
+        "argmax": {
+          "chi": [
+            -60.0,
+            180.0,
+            180.0
+          ],
+          "phi": 70.0,
+          "psi": -60.0
+        },
+        "coarse_max": 718.0064795978003,
+        "n_clash_rejected": 25923,
+        "n_conformers": 34992,
+        "n_nonfinite_rejected": 27,
+        "p99_total": 691.9647035053863
+      },
+      "PHE": {
+        "argmax": {
+          "chi": [
+            -60.0,
+            120.0
+          ],
+          "phi": 70.0,
+          "psi": -60.0
+        },
+        "coarse_max": 753.982863923444,
+        "n_clash_rejected": 16436,
+        "n_conformers": 23328,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 738.8055299677826
+      },
+      "PRO": {
+        "argmax": {
+          "chi": [],
+          "phi": -40.0,
+          "psi": -30.0
+        },
+        "coarse_max": 558.5394187139563,
+        "n_clash_rejected": 765,
+        "n_conformers": 1296,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 544.0072923780211
+      },
+      "SER": {
+        "argmax": {
+          "chi": [
+            -60.0
+          ],
+          "phi": 60.0,
+          "psi": -80.0
+        },
+        "coarse_max": 524.2956541526936,
+        "n_clash_rejected": 2079,
+        "n_conformers": 3888,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 511.8937069077356
+      },
+      "THR": {
+        "argmax": {
+          "chi": [
+            -60.0
+          ],
+          "phi": 50.0,
+          "psi": -90.0
+        },
+        "coarse_max": 580.5520469863759,
+        "n_clash_rejected": 2542,
+        "n_conformers": 3888,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 565.4388203201379
+      },
+      "TRP": {
+        "argmax": {
+          "chi": [
+            -60.0,
+            -30.0
+          ],
+          "phi": 70.0,
+          "psi": -60.0
+        },
+        "coarse_max": 864.1074322183797,
+        "n_clash_rejected": 34845,
+        "n_conformers": 46656,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 828.5279867422163
+      },
+      "TYR": {
+        "argmax": {
+          "chi": [
+            -60.0,
+            120.0
+          ],
+          "phi": 70.0,
+          "psi": -60.0
+        },
+        "coarse_max": 796.1397047331321,
+        "n_clash_rejected": 16372,
+        "n_conformers": 23328,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 777.6969071487354
+      },
+      "VAL": {
+        "argmax": {
+          "chi": [
+            180.0
+          ],
+          "phi": 60.0,
+          "psi": -80.0
+        },
+        "coarse_max": 598.9421349292307,
+        "n_clash_rejected": 2700,
+        "n_conformers": 3888,
+        "n_nonfinite_rejected": 0,
+        "p99_total": 586.9041421733677
+      }
+    },
+    "rotamers": {
+      "backbone_dependent": false,
+      "planar_step": 30.0,
+      "source": "staggered_chi_grid_v1",
+      "sp3_values": [
+        60.0,
+        180.0,
+        -60.0
+      ],
+      "symmetric_chi_period": 180
+    }
+  },
+  "max_asa": {
+    "ALA": 472.5632258658384,
+    "ARG": 824.9716862654335,
+    "ASN": 626.5638028120918,
+    "ASP": 621.5093916554396,
+    "CYS": 569.184861997623,
+    "GLN": 703.4960013485222,
+    "GLU": 698.3446138762109,
+    "GLY": 395.52458501809235,
+    "HIS": 700.0889526608362,
+    "ILE": 657.3452236390362,
+    "LEU": 661.2775467440662,
+    "LYS": 731.5905735505196,
+    "MET": 715.6609614960819,
+    "PHE": 750.942955199273,
+    "PRO": 555.5047262902272,
+    "SER": 521.4190724323529,
+    "THR": 578.7010934798303,
+    "TRP": 854.0687207026617,
+    "TYR": 790.9198810577825,
+    "VAL": 596.7036476219637
+  },
+  "n_points": 10000,
+  "name": "gxg_staggered_chi_grid_v1",
+  "probe_radius": 6.0,
+  "provenance": "Gly-X-Gly tripeptide scan (see extra)",
+  "radii_table": "bondi",
+  "sidechain_max_asa": {
+    "ALA": 268.0726289183829,
+    "ARG": 689.7792168265394,
+    "ASN": 496.046273061187,
+    "ASP": 490.5911997651053,
+    "CYS": 413.0746348358175,
+    "GLN": 563.9948823215092,
+    "GLU": 558.1797618984783,
+    "HIS": 580.5755303914615,
+    "ILE": 539.7215463826475,
+    "LEU": 521.6165856191215,
+    "LYS": 597.508601696975,
+    "MET": 575.8242139365062,
+    "PHE": 636.7283731896888,
+    "PRO": 368.50673224856075,
+    "SER": 345.3560439418045,
+    "THR": 434.20266174264407,
+    "TRP": 729.968600051079,
+    "TYR": 676.6342357197191,
+    "VAL": 454.4866693724669
+  }
+}
