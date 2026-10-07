@@ -1,8 +1,9 @@
-# accessfold — Stage 2: synthetic accessibility measurements
+# Stage 3: Truth Accessibility
 
-`f`: structure → residue-level accessibility vector `y`. The same function is applied to the true structure
-(the synthetic "experiment", Stage 2), to OpenFold3 candidates (Stages 3–4), and is the exact target a
-differentiable PyTorch surrogate is validated against (Stage 5). Core dependencies: NumPy + SciPy only.
+This folder calculates synthetic reference accessibility from experimental PDB structures listed in Stage 1
+dataset CSVs. It contains a self-contained AccessFold package snapshot used by the Stage 3 truth pipeline;
+the repository's `stage2/` folder is unchanged. "Truth" means calculated from the experimental coordinate
+model, not measured accessibility in solution. Candidate generation and RMSD evaluation are separate steps.
 
 ## What it does (data flow)
 
@@ -86,7 +87,7 @@ Install with `pip install freesasa --use-pep517` (the legacy `setup.py` path fai
 
 ## Stage 3 step 1: accessibility of the true structures
 
-`scripts/compute_truth_accessibility.py --csv development.csv validation.csv test_a.csv test_b.csv --out truth_out`
+`python scripts/compute_truth_accessibility.py --csv development.csv validation.csv --out truth_out`
 (see the script header for the download / SLURM-array / collect workflow). For each row it fetches the mmCIF file, loads the chain
 `label_chain_id` with `accessfold.structures.mmcif.load_chain_from_mmcif` (sequence-position indexing from `label_seq_id`; isolated
 monomer; first model; highest-occupancy altlocs; hydrogens, waters, ligands, other chains dropped; residue names taken from the CSV sequence),
@@ -96,13 +97,22 @@ and calls `compute_accessibility` at 1.4 / 2.5 / 4.0 / 6.0 A (`accessfold.truth.
 Masking policy (v2): unresolved | partly modelled | chemically modified or different from the sequence residue (selenomethionine is the only
 exception; the identity, parent and extra atoms are recorded) | "shadow" residues whose area changes by more than `--shadow-threshold` (5 A^2) at any
 radius when a modification's extra atoms are removed. Coverage is reported three ways (coordinate records, usable atoms, Stage 1's number) with a warning
-when they differ; zero-occupancy atoms are never used. Not yet run on real downloads (the sandbox cannot reach RCSB).
+when they differ; zero-occupancy atoms are never used.
+
+The updated pipeline was run on the CPU cluster for 30 development and 15 validation chains at all four radii.
+The resulting summary confirms CYQ and five shadow exclusions in 2ID7, and distinguishes 165 coordinate-record
+positions from 160 usable positions in 3RF2. All 45 chains pass the 90% usable-coordinate coverage threshold.
+Test A and Test B have not been run. Generated cluster outputs are separate from the code in this folder.
 
 ## Not done / open
 
 (Stage 2C, the CpK rotamer forward model, is deliberately outside this deliverable; `register_method` is the only hook for it.)
 
-* **No real experimental structure has been run through the package** (the sandbox proxy blocks RCSB). Tests use analytic geometry and PeptideBuilder model peptides. The spec's "manually inspected exposed/buried residues on several real structures" test still needs structures from Stage 1: add them to `tests/data/` and extend `tests/test_physical_sanity.py`.
+* Earlier manual PyMOL validation covered ubiquitin, crambin and lysozyme; see `../../stage2/validation/`.
+  The 45-chain dataset run was checked through QC summaries, not visual inspection of every chain.
+* Missing regions contribute no shielding. The 5 A^2 shadow threshold is a modelling choice, and alternate-location
+  ties use the first listed coordinates. Calculations use an isolated chain and the first model; these assumptions
+  must remain explicit when comparing with candidate structures.
 * **Dunbrack library:** `DunbrackLibrary(path_to_ALL.bbdep.rotamers.lib)` (Simple Mode, `accessibility/dunbrack.py`) is a ready `RotamerSource`
   (mean chi only, probability floor 0.01, not bundled; ODC-BY, cite Shapovalov & Dunbrack 2011, Structure 19:844). The bundled tables still use the
   staggered grid. Full 10-degree scan of all 20 residues with the library vs the bundled tables: mean +0.06 % (1.4 A) and -0.17 % (6.0 A);
