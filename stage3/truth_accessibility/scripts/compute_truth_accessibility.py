@@ -45,7 +45,7 @@ from pathlib import Path
 
 import numpy as np
 
-csv.field_size_limit(sys.maxsize)
+csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
 
 DEFAULT_URLS = (
     "https://files.rcsb.org/download/{ID}.cif.gz",
@@ -191,6 +191,8 @@ def collect(out_dir: Path, radii):
             shadow = z["shadow"] if "shadow" in z.files else np.zeros_like(mask)
             rel = {r: z[f"rel_{r:g}"] for r in radii}
             ab = {r: z[f"abs_{r:g}"] for r in radii}
+            sc_ab = {r: z[f"sc_abs_{r:g}"] for r in radii}
+            sc_rel = {r: z[f"sc_rel_{r:g}"] for r in radii}
         qc = meta["qc"]
         row = {k: meta[k] for k in ("entry", "pdb_id", "label_chain_id", "split", "release_date", "method", "resolution",
                                     "number_of_chains_in_assembly", "screening_decision", "passes_standard_filters", "forced_split")}
@@ -219,7 +221,9 @@ def collect(out_dir: Path, radii):
         for i in range(len(names)):
             long_rows.append([meta["entry"], meta["split"], i + 1, names[i], int(resolved[i]), int(complete[i]), int(modified[i]),
                               int(shadow[i]), int(mask[i]), int(gap[i]), *[("" if np.isnan(ab[r][i]) else f"{ab[r][i]:.3f}") for r in radii],
-                              *[("" if np.isnan(rel[r][i]) else f"{rel[r][i]:.4f}") for r in radii]])
+                              *[("" if np.isnan(rel[r][i]) else f"{rel[r][i]:.4f}") for r in radii],
+                              *[("" if np.isnan(sc_ab[r][i]) else f"{sc_ab[r][i]:.3f}") for r in radii],
+                              *[("" if np.isnan(sc_rel[r][i]) else f"{sc_rel[r][i]:.4f}") for r in radii]])
     if summary_rows:
         with open(out_dir / "summary.csv", "w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=list(summary_rows[0]))
@@ -228,7 +232,8 @@ def collect(out_dir: Path, radii):
         with gzip.open(out_dir / "residues.csv.gz", "wt", newline="") as fh:
             w = csv.writer(fh)
             w.writerow(["entry", "split", "position", "residue", "resolved", "complete", "modified", "shadow", "in_mask", "gap_distance",
-                        *[f"abs_{r:g}" for r in radii], *[f"rel_{r:g}" for r in radii]])
+                        *[f"abs_{r:g}" for r in radii], *[f"rel_{r:g}" for r in radii],
+                        *[f"sc_abs_{r:g}" for r in radii], *[f"sc_rel_{r:g}" for r in radii]])
             w.writerows(long_rows)
     return len(summary_rows)
 

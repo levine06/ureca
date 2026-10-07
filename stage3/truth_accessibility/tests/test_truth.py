@@ -1,5 +1,6 @@
 """mmCIF chain loader and truth-accessibility pipeline, on a synthetic mmCIF built from real PeptideBuilder geometry."""
 import gzip
+import csv
 import json
 import subprocess
 import sys
@@ -199,7 +200,14 @@ def test_cli_end_to_end_offline(cif_and_truth, tmp_path):
     summ = (out / "summary.csv").read_text().splitlines()
     assert len(summ) == 2 and "mean_rsa_1.4" in summ[0] and "13:SEP" in summ[1] and "n_shadow_masked" in summ[0]
     with gzip.open(out / "residues.csv.gz", "rt") as fh:
-        assert len(fh.read().splitlines()) == len(SEQ) + 1
+        exported = list(csv.DictReader(fh))
+    assert len(exported) == len(SEQ)
+    for prefix, decimals in (("abs", 3), ("rel", 4), ("sc_abs", 3), ("sc_rel", 4)):
+        for radius in (1.4, 6.0):
+            key = f"{prefix}_{radius:g}"
+            for i, row in enumerate(exported):
+                value = z[key][i]
+                assert row[key] == ("" if np.isnan(value) else f"{value:.{decimals}f}")
     # resumable: a second run recomputes nothing and gives the same bytes in the result
     before = (out / "TEST_A.npz").stat().st_mtime_ns
     subprocess.run([sys.executable, str(script), "--csv", str(csv_path), "--cache-dir", str(cache), "--out", str(out),

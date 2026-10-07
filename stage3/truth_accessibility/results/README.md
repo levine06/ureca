@@ -4,7 +4,8 @@
 It includes modified-residue/shadow masking and separate coordinate-record and usable coverage.
 Test A and Test B were not included.
 
-`residues.csv.gz` contains 9,224 per-residue rows with accessibility values and exclusion flags.
+`residues.csv.gz` contains 9,224 per-residue rows with total and side-chain absolute/relative
+accessibility values at all four radii, plus exclusion flags.
 The 45 `.npz` files preserve full-precision arrays, masks and run metadata; use these for numerical
 candidate comparisons. The CSV rounds absolute areas to three decimals and relative values to four.
 All files were checked for matching entries, updated masking metadata and masked relative values.
