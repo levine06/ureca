@@ -23,14 +23,17 @@ Examples
     # smoke test on one entry with a few candidates
     python stage3/generate_candidates.py --only 1L66_A --seeds 42 7 --num-diffusion-samples 2
 
-    # run 4 OpenFold3 processes side by side inside one job (threads split evenly)
-    python stage3/generate_candidates.py --workers 4
-
-    # or split the work over separate PBS jobs: see stage3/submit_shards.pbs
-    python stage3/generate_candidates.py --shard 0/4
+    # one shard of four (what each PBS array element runs, see submit_shards.pbs)
+    python stage3/generate_candidates.py --shard 0/4 --threads 8
 
     # rebuild the manifest from whatever has finished, without running inference
     python stage3/generate_candidates.py --manifest-only
+
+Parallelism: the entries are divided into N shards and each shard is run by its
+own PBS array element (``qsub stage3/submit_shards.pbs``), which runs one
+OpenFold3 process on its shard with its own CPUs and memory.  Shards are
+independent, so a crashed shard can simply be resubmitted.  Shard jobs do not
+write the manifest; run ``--manifest-only`` once after all of them finish.
 
 Re-running is safe: finished candidates are skipped (``skip_existing``).
 """
@@ -139,57 +142,6 @@ def thread_env(threads):
     return env
 
 
-def available_cpus():
-    """CPUs granted to this job: PBS NCPUS if set, else what the OS lets us use."""
-    if os.environ.get("NCPUS"):
-        return int(os.environ["NCPUS"])
-    return len(os.sched_getaffinity(0))
-
-
-def strip_option(argv, name):
-    """Drop `--name value` / `--name=value` from an argv list."""
-    out, skip = [], False
-    for tok in argv:
-        if skip:
-            skip = False
-        elif tok == name:
-            skip = True
-        elif not tok.startswith(name + "="):
-            out.append(tok)
-    return out
-
-
-def run_workers(args):
-    """Launch one subprocess per shard, splitting the CPUs between them."""
-    threads = args.threads or max(1, available_cpus() // args.workers)
-    base = strip_option(strip_option(sys.argv[1:], "--workers"), "--threads")
-    work_dir = STAGE3_DIR / "work"
-    work_dir.mkdir(parents=True, exist_ok=True)
-    print(f"{args.workers} workers x {threads} threads", flush=True)
-
-    procs = []
-    try:
-        for i in range(args.workers):
-            log_path = work_dir / f"log_shard{i}of{args.workers}.txt"
-            log = open(log_path, "w")
-            cmd = [sys.executable, str(Path(__file__).resolve()), *base,
-                   "--shard", f"{i}/{args.workers}", "--threads", str(threads)]
-            print(f"  worker {i}: log -> {log_path}", flush=True)
-            procs.append((i, subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT), log))
-        failed = []
-        for i, proc, log in procs:
-            if proc.wait() != 0:
-                failed.append(i)
-            log.close()
-    except BaseException:
-        for _, proc, _ in procs:
-            proc.terminate()
-        raise
-    if failed:
-        sys.exit(f"Workers {failed} failed; see stage3/work/log_shard*.txt. "
-                 "Re-run the same command to resume (finished candidates are skipped).")
-
-
 def out_dir_for(split):
     return STAGE3_DIR / "candidates" / split
 
@@ -270,12 +222,9 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--splits", nargs="+", default=list(SPLIT_CSVS), choices=list(SPLIT_CSVS))
     p.add_argument("--only", nargs="+", help="restrict to these entries, e.g. 1L66_A")
-    p.add_argument("--shard", type=parse_shard, help="process shard I of N (I/N), for parallel jobs")
-    p.add_argument("--workers", type=int, default=1,
-                   help="run N shard processes in parallel in this job; CPUs are split between them")
+    p.add_argument("--shard", type=parse_shard, help="process shard I of N (I/N); one PBS array element per shard")
     p.add_argument("--threads", type=int,
-                   help="CPU threads for this OpenFold3 process (default: all visible; "
-                        "with --workers, available CPUs / workers)")
+                   help="CPU threads for OpenFold3 (default: all visible); set to the job's NCPUS")
     p.add_argument("--seeds", nargs="+", type=int, default=DEFAULT_SEEDS,
                    help="model seeds; each seed gives an independent trunk+diffusion run")
     p.add_argument("--num-diffusion-samples", type=int, default=5,
@@ -290,14 +239,6 @@ def main():
     p.add_argument("--dry-run", action="store_true", help="write queries and print commands only")
     p.add_argument("--manifest-only", action="store_true", help="skip inference, just rebuild the manifest")
     args = p.parse_args()
-
-    if args.workers > 1:
-        if args.shard or args.manifest_only or args.dry_run:
-            sys.exit("--workers cannot be combined with --shard, --manifest-only or --dry-run")
-        run_workers(args)
-        manifest, path = build_manifest(load_entries(args.splits))
-        print(f"Manifest: {len(manifest)} candidates -> {path}")
-        return
 
     entries_all = load_entries(args.splits)
     if not args.manifest_only:

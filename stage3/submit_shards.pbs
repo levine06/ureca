@@ -1,15 +1,23 @@
 #!/bin/bash
-# PBS array job: each array element runs one shard of the Stage 3 candidate
-# generation on its own CPUs.  Submit from anywhere with:
-#     qsub stage3/submit_shards.pbs
-# The array size (-J 0-3 = 4 shards) must match NUM_SHARDS below.
-# Adjust ncpus / mem / walltime / queue to your allocation (placeholders below).
+# PBS array job for Stage 3: array element i runs shard i of NUM_SHARDS, i.e.
+# one OpenFold3 process on its own CPUs and memory.  Elements are independent:
+# they start whenever the scheduler has room, and a failed element can be
+# resubmitted without redoing the others.
+#
+#   qsub stage3/submit_shards.pbs
+#
+# Logs go to stage3_candidates.o<jobid>.<index> in the directory you run qsub from.
+# Smoke test (one element, one entry, few candidates):
+#   qsub -J 0-0 -v EXTRA_ARGS="--only 1L66_A --seeds 42 7 --num-diffusion-samples 2" stage3/submit_shards.pbs
+# NUM_SHARDS must equal the number of array elements in -J (0-3 = 4 elements).
+# ncpus / mem / walltime below are placeholders: adjust to your allocation.
 #PBS -N stage3_candidates
+#PBS -P as_sbs_richard.she
+#PBS -q qintel_wfly
 #PBS -J 0-3
-#PBS -l select=1:ncpus=8:mem=32gb
+#PBS -l select=1:ncpus=4:mem=32gb
 #PBS -l walltime=24:00:00
 #PBS -j oe
-#PBS -o /home/levi0006/ureca/stage3/work/
 
 NUM_SHARDS=4
 cd /home/levi0006/ureca || exit 1
@@ -19,9 +27,12 @@ source /usr/local/anaconda2025/etc/profile.d/conda.sh
 conda activate openfold3
 
 # Use exactly the CPUs this job was given.
-export OMP_NUM_THREADS=${NCPUS:-8} MKL_NUM_THREADS=${NCPUS:-8}
+export OMP_NUM_THREADS=${NCPUS:-4} MKL_NUM_THREADS=${NCPUS:-4}
 
-python stage3/generate_candidates.py --shard ${PBS_ARRAY_INDEX}/${NUM_SHARDS} --threads ${OMP_NUM_THREADS}
+python stage3/generate_candidates.py \
+    --shard ${PBS_ARRAY_INDEX}/${NUM_SHARDS} \
+    --threads ${OMP_NUM_THREADS} \
+    ${EXTRA_ARGS}
 
 # After every element has finished, build the manifest once:
 #   python stage3/generate_candidates.py --manifest-only
