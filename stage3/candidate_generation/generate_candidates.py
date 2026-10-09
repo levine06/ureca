@@ -8,8 +8,8 @@ several model seeds and several diffusion samples per seed.  Every
 
 Output layout (OpenFold3's own layout, one directory per entry):
 
-    stage3/candidates/<split>/<PDB>_<CHAIN>/seed_<S>/<name>_seed_<S>_sample_<N>_model.cif
-    stage3/candidates/<split>/<PDB>_<CHAIN>/seed_<S>/<name>_seed_<S>_sample_<N>_confidences_aggregated.json
+    stage3/candidate_generation/candidates/<split>/<PDB>_<CHAIN>/seed_<S>/<name>_seed_<S>_sample_<N>_model.cif
+    stage3/candidate_generation/candidates/<split>/<PDB>_<CHAIN>/seed_<S>/<name>_seed_<S>_sample_<N>_confidences_aggregated.json
 
 After inference, ``candidates_manifest.csv`` lists every candidate with its
 split, seed, sample, model path and OpenFold3 confidence scores, so the later
@@ -18,19 +18,19 @@ accessibility step only needs to read that one file.
 Examples
 --------
     # everything (30 dev + 15 val entries, 5 seeds x 5 samples each)
-    python stage3/generate_candidates.py
+    python stage3/candidate_generation/generate_candidates.py
 
     # smoke test on one entry with a few candidates
-    python stage3/generate_candidates.py --only 1L66_A --seeds 42 7 --num-diffusion-samples 2
+    python stage3/candidate_generation/generate_candidates.py --only 1L66_A --seeds 42 7 --num-diffusion-samples 2
 
     # one shard of four (what each PBS array element runs, see submit_shards.pbs)
-    python stage3/generate_candidates.py --shard 0/4 --threads 8
+    python stage3/candidate_generation/generate_candidates.py --shard 0/4 --threads 8
 
     # rebuild the manifest from whatever has finished, without running inference
-    python stage3/generate_candidates.py --manifest-only
+    python stage3/candidate_generation/generate_candidates.py --manifest-only
 
 Parallelism: the entries are divided into N shards and each shard is run by its
-own PBS array element (``qsub stage3/submit_shards.pbs``), which runs one
+own PBS array element (``qsub stage3/candidate_generation/submit_shards.pbs``), which runs one
 OpenFold3 process on its shard with its own CPUs and memory.  Shards are
 independent, so a crashed shard can simply be resubmitted.  Shard jobs do not
 write the manifest; run ``--manifest-only`` once after all of them finish.
@@ -50,9 +50,9 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-URECA_ROOT = Path(__file__).resolve().parents[1]
+URECA_ROOT = Path(__file__).resolve().parents[2]
 STAGE1_DIR = URECA_ROOT / "stage1" / "datasets"
-STAGE3_DIR = URECA_ROOT / "stage3"
+GEN_DIR = URECA_ROOT / "stage3" / "candidate_generation"
 DEFAULT_RUNNER_YAML = URECA_ROOT / "cpu_inference.yml"
 DEFAULT_OPENFOLD_REPO = URECA_ROOT / "openfold-3"
 
@@ -143,11 +143,11 @@ def thread_env(threads):
 
 
 def out_dir_for(split):
-    return STAGE3_DIR / "candidates" / split
+    return GEN_DIR / "candidates" / split
 
 
 def run_inference(args, entries):
-    work_dir = STAGE3_DIR / "work"
+    work_dir = GEN_DIR / "work"
     work_dir.mkdir(parents=True, exist_ok=True)
     shard_tag = f"shard{args.shard[0]}of{args.shard[1]}" if args.shard else "all"
 
@@ -213,7 +213,7 @@ def build_manifest(entries_all):
                         row[key] = scores.get(key)
                 rows.append(row)
     manifest = pd.DataFrame(rows)
-    path = STAGE3_DIR / "candidates_manifest.csv"
+    path = GEN_DIR / "candidates_manifest.csv"
     manifest.to_csv(path, index=False)
     return manifest, path
 

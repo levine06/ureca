@@ -8,6 +8,6 @@ __pycache__/
 reference_structures/
 .claude/
 *.swp
-stage3/candidates/
-stage3/work/
-stage3/logs/
+stage3/candidate_generation/candidates/
+stage3/candidate_generation/work/
+stage3/candidate_generation/logs/

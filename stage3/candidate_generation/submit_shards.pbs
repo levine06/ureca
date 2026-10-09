@@ -4,11 +4,11 @@
 # they start whenever the scheduler has room, and a failed element can be
 # resubmitted without redoing the others.
 #
-#   qsub stage3/submit_shards.pbs
+#   qsub stage3/candidate_generation/submit_shards.pbs
 #
-# Logs go to stage3_candidates.o<jobid>.<index> in the directory you run qsub from.
+# Logs go to stage3/candidate_generation/logs/ (must exist before qsub).
 # Smoke test (one element, one entry, few candidates):
-#   qsub -J 0-0 -v EXTRA_ARGS="--only 1L66_A --seeds 42 7 --num-diffusion-samples 2" stage3/submit_shards.pbs
+#   qsub -J 0-0 -v EXTRA_ARGS="--only 1L66_A --seeds 42 7 --num-diffusion-samples 2" stage3/candidate_generation/submit_shards.pbs
 # NUM_SHARDS must equal the number of array elements in -J (0-3 = 4 elements).
 # ncpus / mem / walltime below are placeholders: adjust to your allocation.
 #PBS -N stage3_candidates
@@ -18,11 +18,11 @@
 #PBS -l select=1:ncpus=4:mem=32gb
 #PBS -l walltime=24:00:00
 #PBS -j oe
-#PBS -o /home/levi0006/ureca/stage3/logs/
+#PBS -o /home/levi0006/ureca/stage3/candidate_generation/logs/
 
 NUM_SHARDS=4
 cd /home/levi0006/ureca || exit 1
-mkdir -p stage3/work
+mkdir -p stage3/candidate_generation/work stage3/candidate_generation/logs
 
 source /usr/local/anaconda2025/etc/profile.d/conda.sh
 conda activate openfold3
@@ -30,10 +30,10 @@ conda activate openfold3
 # Use exactly the CPUs this job was given.
 export OMP_NUM_THREADS=${NCPUS:-4} MKL_NUM_THREADS=${NCPUS:-4}
 
-python stage3/generate_candidates.py \
+python stage3/candidate_generation/generate_candidates.py \
     --shard ${PBS_ARRAY_INDEX}/${NUM_SHARDS} \
     --threads ${OMP_NUM_THREADS} \
     ${EXTRA_ARGS}
 
 # After every element has finished, build the manifest once:
-#   python stage3/generate_candidates.py --manifest-only
+#   python stage3/candidate_generation/generate_candidates.py --manifest-only
