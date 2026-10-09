@@ -271,9 +271,40 @@ def quarantine(out_dir, name):
         shutil.move(str(target), str(qdir / f"{name}.{time.strftime('%Y%m%dT%H%M%S')}.npz"))
 
 
+def check_truth_against_structure(truth, tmeta, tstruct, tcomplete, tqc, radii, n_points, mask):
+    """Recompute the truth accessibility from the cached structure and compare with the saved truth file (--verify-truth)."""
+    from accessfold.truth import truth_arrays
+    ref = truth_arrays(tstruct, tcomplete, radii, n_points, modified=tqc["modified_residues"],
+                       shadow_threshold=tmeta.get("shadow_threshold", 5.0))
+    for r in radii:
+        if not np.allclose(ref[f"rel_{r:g}"][mask], truth[f"rel_{r:g}"][mask], atol=1e-6, equal_nan=True):
+            raise RuntimeError(f"--verify-truth: recomputed accessibility at {r:g} A differs from the saved truth file")
+    return "truth recomputed from the cached structure and matched"
+
+
+def verify_reused(target, tpath, cif, key, old, out_dir):
+    """--verify-truth on a REUSED result: check the truth file against the cached structure now (without rescoring) and
+    record the outcome in the stored meta. Raises if the recomputation disagrees (the caller then quarantines the result)."""
+    from accessfold.structures.mmcif import load_chain_from_mmcif
+    with np.load(tpath, allow_pickle=False) as z:
+        truth = {k: z[k] for k in z.files if k != "meta"}
+        tmeta = json.loads(str(z["meta"]))
+    if tmeta.get("source_cif_sha1") and tmeta["source_cif_sha1"] != sha1_of(cif):
+        raise RuntimeError("the cached structure is not the one the truth accessibility was computed from (content hash differs)")
+    tstruct, tcomplete, tqc = load_chain_from_mmcif(cif, key[1], tmeta["sequence"])
+    note = check_truth_against_structure(truth, tmeta, tstruct, tcomplete, tqc, tmeta["probe_radii"], int(tmeta["n_points"]),
+                                         truth["mask"].astype(bool))
+    with np.load(target, allow_pickle=False) as z:
+        arrays = {k: z[k] for k in z.files if k != "meta"}
+    old = dict(old, truth_check=note)
+    tmp = Path(out_dir) / f".{target.stem}.tmp.npz"
+    np.savez_compressed(tmp, meta=np.array(json.dumps(old)), **arrays)
+    tmp.replace(target)
+
+
 # ------------------------------------------------------------------------------------------------ compute
 def process_entry(task):
-    """Returns (entry, error or None, status) with status in {"scored", "reused", "stale->rescored", "failed"}."""
+    """Returns (entry, error or None, status) with status in {"scored", "reused", "reused+verified", "stale->rescored", "failed"}."""
     (row, truth_dir, cache_dir, pattern, cand_chain, out_dir, environment, kind, overwrite,
      min_candidates, min_coverage, verify_truth) = task
     key = row["_key"]
@@ -311,6 +342,9 @@ def process_entry(task):
                 k_old = len(old["candidates"])
                 if k_old < min_candidates:                       # the stored result must satisfy the CURRENT requirement
                     raise RuntimeError(f"stored result has only {k_old} usable candidate(s) (<{min_candidates} required now)")
+                if verify_truth and "matched" not in str(old.get("truth_check", "")):
+                    verify_reused(target, tpath, cif, key, old, out_dir)      # reuse must not skip the requested check
+                    return name, None, "reused+verified"
                 return name, None, "reused"
             status = "stale->rescored"
 
@@ -329,13 +363,7 @@ def process_entry(task):
             raise RuntimeError("truth file does not match the structure in the cache (different loader version or structure?)")
         mask = truth["mask"].astype(bool)
         if verify_truth:
-            from accessfold.truth import truth_arrays
-            ref = truth_arrays(tstruct, tcomplete, radii, n_points, modified=tqc["modified_residues"],
-                               shadow_threshold=tmeta.get("shadow_threshold", 5.0))
-            for r in radii:
-                if not np.allclose(ref[f"rel_{r:g}"][mask], truth[f"rel_{r:g}"][mask], atol=1e-6, equal_nan=True):
-                    raise RuntimeError(f"--verify-truth: recomputed accessibility at {r:g} A differs from the saved truth file")
-            truth_note = "truth recomputed from the cached structure and matched"
+            truth_note = check_truth_against_structure(truth, tmeta, tstruct, tcomplete, tqc, radii, n_points, mask)
         t_ca, t_has = ca_coordinates(tstruct)
         y = truth_profile(truth, radii, kind)
         needed = mask[:, None] & np.isfinite(y)           # truth-DEFINED entries only (e.g. glycine has no side-chain value)

@@ -629,6 +629,36 @@ def test_truth_and_cache_must_be_the_same_structure(pipeline, tmp_path):
     assert s.process_entry(t)[1] is None and "matched" in read_meta(out4 / "TEST_A.npz")["truth_check"]
 
 
+def test_verify_truth_also_applies_to_reused_results(pipeline, tmp_path):
+    truth, cache2 = pipeline["truth"], None
+    out = tmp_path / "ov"
+    out.mkdir()
+    s, t = task(pipeline, out)                                                                      # first run WITHOUT verification
+    assert s.process_entry(t)[2] == "scored" and read_meta(out / "TEST_A.npz")["truth_check"] != "truth recomputed from the cached structure and matched"
+    s, t = task(pipeline, out)
+    assert s.process_entry(t)[2] == "reused"                                                         # plain re-run still just reuses
+    s, t = task(pipeline, out, verify_truth=True)                                                    # now ask for the check: must run it
+    name, err, status = s.process_entry(t)
+    assert err is None and status == "reused+verified" and "matched" in read_meta(out / "TEST_A.npz")["truth_check"]
+    s, t = task(pipeline, out, verify_truth=True)                                                    # already verified: plain reuse
+    assert s.process_entry(t)[2] == "reused"
+    # a truth file that does not match the cached structure is caught on reuse as well, and the result is quarantined
+    out2 = tmp_path / "ov2"
+    out2.mkdir()
+    s, t = task(pipeline, out2)
+    assert s.process_entry(t)[1] is None
+    bad = tmp_path / "bad_truth"
+    bad.mkdir()
+    with np.load(truth / "TEST_A.npz") as z:
+        arrays = {k: z[k] for k in z.files if k != "meta"}
+        meta = json.loads(str(z["meta"]))
+    arrays["rel_1.4"] = np.where(np.isfinite(arrays["rel_1.4"]), arrays["rel_1.4"] * 0.5, arrays["rel_1.4"])
+    np.savez_compressed(bad / "TEST_A.npz", meta=np.array(json.dumps(meta)), **arrays)
+    s, t = task(pipeline, out2, truth=bad, verify_truth=True)
+    name, err, status = s.process_entry(t)
+    assert status == "failed" and "verify-truth" in err and not (out2 / "TEST_A.npz").exists()
+
+
 def test_truth_residue_table_exports_side_chain_columns(pipeline):
     import gzip as gz
     with gz.open(pipeline["truth"] / "residues.csv.gz", "rt") as fh:

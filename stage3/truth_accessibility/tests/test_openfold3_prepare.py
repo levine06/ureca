@@ -115,3 +115,28 @@ def test_query_named_by_pdb_id_is_matched(tmp_path, dataset):
     assert r.returncode == 0, r.stdout + r.stderr
     row = list(csv.DictReader(open(tmp_path / "rank.csv")))[0]
     assert row["entry"] == "AAAA_A" and row["query"] == "AAAA" and "{pdb_id}/seed_*" in r.stdout
+
+
+def test_printed_pattern_includes_development_validation_subfolders(tmp_path):
+    ds = tmp_path / "ds.csv"
+    ds.write_text("pdb_id,chain_id,label_chain_id,sequence\n" f"AAAA,A,A,{SEQ}\n" f"BBBB,A,A,{SEQ}\n")
+    make_tree(tmp_path / "of3" / "development", query="AAAA_A", seeds=(42,), samples=1)
+    make_tree(tmp_path / "of3" / "validation", query="BBBB_A", seeds=(42, 43), samples=1)
+    r = run(ROOT / "prepare_openfold3_outputs.py", "--csv", ds, "--predictions", tmp_path / "of3", "--out", tmp_path / "rank.csv")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert f'"{(tmp_path / "of3").as_posix()}/*/{{entry}}/seed_*/*_model.cif*"' in r.stdout
+    # the printed pattern really finds every model, under both subfolders
+    import glob
+    pat = f"{(tmp_path / 'of3').as_posix()}/*/{{entry}}/seed_*/*_model.cif*"
+    assert len(glob.glob(pat.format(entry="AAAA_A"))) == 1 and len(glob.glob(pat.format(entry="BBBB_A"))) == 2
+
+
+def test_printed_pattern_keeps_common_subfolder_and_flags_mixed_layouts(tmp_path):
+    ds = tmp_path / "ds.csv"
+    ds.write_text("pdb_id,chain_id,label_chain_id,sequence\n" f"AAAA,A,A,{SEQ}\n" f"BBBB,A,A,{SEQ}\n")
+    make_tree(tmp_path / "of3" / "runs" / "development", query="AAAA_A", seeds=(42,), samples=1)
+    r = run(ROOT / "prepare_openfold3_outputs.py", "--csv", ds, "--predictions", tmp_path / "of3", "--out", tmp_path / "rank.csv", "--allow-missing")
+    assert f'/of3/runs/development/{{entry}}/seed_*/*_model.cif*"' in r.stdout and "NOTE" not in r.stdout
+    make_tree(tmp_path / "of3", query="BBBB_A", seeds=(42,), samples=1)                    # a second, shallower layout
+    r = run(ROOT / "prepare_openfold3_outputs.py", "--csv", ds, "--predictions", tmp_path / "of3", "--out", tmp_path / "rank.csv")
+    assert r.stdout.count(" --candidate-chain ") == 2 and "one pattern per layout" in r.stdout

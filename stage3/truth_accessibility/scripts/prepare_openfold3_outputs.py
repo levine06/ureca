@@ -85,6 +85,36 @@ def polymer_chains(path: Path):
     return sorted(out)
 
 
+def candidate_patterns(root: Path, matched, by_name):
+    """--candidates pattern(s) that reach every matched model file, built from where the files really are.
+
+    Layout assumed below the root: <subfolders...>/<query>/seed_<n>/<file>. Folders that are the same for all files at a
+    given position are kept literally (e.g. development/), those that differ become `*` (development/ vs validation/),
+    and seed_<n> becomes seed_*. The query folder is written {entry} or {pdb_id} when it is named like that. Files with a
+    different layout (depth, query-folder naming or extension) get their own pattern line. Returns (patterns, notes)."""
+    groups, notes = defaultdict(list), []
+    for m, entry, q in matched:
+        rel = m.relative_to(root).parts
+        idx = max((i for i, part in enumerate(rel[:-1]) if part == q), default=None)
+        if idx is None:                                   # no folder named like the query: assume <query>/seed_<n>/file
+            idx = max(len(rel) - 3, 0)
+            notes.append(f"{m.name}: no folder named {q!r} on its path; assumed {rel[idx]!r} is the query folder")
+        ext = "pdb" if ".pdb" in m.name.lower() else "cif"
+        groups[(len(rel[:idx]), len(rel[idx + 1:-1]), q.upper() in by_name, ext)].append((rel[:idx], rel[idx + 1:-1]))
+    pats = []
+    for (n_pre, n_tail, is_entry, ext), items in sorted(groups.items()):
+        pre = [vals.pop() if len(vals := {p[i] for p, _ in items}) == 1 else "*" for i in range(n_pre)]
+        tail = []
+        for i in range(n_tail):
+            vals = {t[i] for _, t in items}
+            tail.append("seed_*" if all(v.startswith("seed_") for v in vals) else (next(iter(vals)) if len(vals) == 1 else "*"))
+        pats.append("/".join([root.as_posix(), *pre, "{entry}" if is_entry else "{pdb_id}", *tail, f"*_model.{ext}*"]))
+    if len(pats) > 1:
+        notes.append("the model files are not all laid out the same way, so there is one pattern per layout; run "
+                     "score_candidates.py once per pattern with the matching --csv rows, or reorganise the folders")
+    return pats, notes
+
+
 def read_confidences(model: Path):
     js = model.with_name(MODEL_RE.sub(lambda m: f"{m['query']}_seed_{m['seed']}_sample_{m['sample']}_confidences_aggregated.json", model.name))
     if not js.exists():
@@ -118,7 +148,7 @@ def main():
     if not models:
         sys.exit(f"no files named <query>_seed_<n>_sample_<i>_model.cif|pdb found under {root}")
 
-    rows, per_entry, unmatched, problems = [], defaultdict(list), defaultdict(int), []
+    rows, per_entry, unmatched, problems, matched = [], defaultdict(list), defaultdict(int), [], []
     for m in models:
         g = MODEL_RE.match(m.name)
         q = g["query"]
@@ -158,6 +188,7 @@ def main():
                 row["validated"] = f"FAILED: {type(exc).__name__}: {str(exc)[:220]}{found}"
                 problems.append((m.name, row["validated"]))
         rows.append(row)
+        matched.append((m, entry, q))
         per_entry[entry["entry"]].append(row)
 
     cols = ["entry", "candidate", "score"] + FIELDS + ["seed", "sample", "query", "validated", "note"]
@@ -184,9 +215,13 @@ def main():
         print(f"\n{len(problems)} model(s) FAILED validation, first few:")
         for n, msg in problems[:8]:
             print(f"  {n}: {msg}")
-    queries = {r["query"] for r in rows}
-    dirs = "{entry}" if all(q.upper() in by_name for q in queries) else "{pdb_id}"
-    print(f"\nuse:  --candidates \"{root.as_posix()}/{dirs}/seed_*/*_model.cif*\" --candidate-chain {a.chain if a.chain != 'auto' else '<chain printed in the failures above, or A>'} --ranking-csv {a.out}")
+    patterns, notes = candidate_patterns(root, matched, by_name)
+    chain_txt = a.chain if a.chain != "auto" else "<chain printed in the failures above, or A>"
+    print("\nuse (one --candidates pattern; the folders between the predictions root and the query folder are included):")
+    for pat in patterns:
+        print(f"  --candidates \"{pat}\" --candidate-chain {chain_txt} --ranking-csv {a.out}")
+    for n in notes:
+        print("  NOTE: " + n)
     if problems or (missing and not a.allow_missing):
         sys.exit(1)
 
