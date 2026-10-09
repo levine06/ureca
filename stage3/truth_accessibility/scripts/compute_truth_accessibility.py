@@ -35,6 +35,7 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
 import argparse
 import csv
 import gzip
+import hashlib
 import json
 import sys
 import time
@@ -45,7 +46,18 @@ from pathlib import Path
 
 import numpy as np
 
-csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
+def raise_csv_field_limit():
+    """Long sequences exceed csv's default field limit; sys.maxsize overflows a C long on Windows, so back off."""
+    limit = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(limit)
+            return
+        except OverflowError:
+            limit //= 10
+
+
+raise_csv_field_limit()
 
 DEFAULT_URLS = (
     "https://files.rcsb.org/download/{ID}.cif.gz",
@@ -126,6 +138,11 @@ def process_entry(task):
         from accessfold.truth import truth_arrays
 
         t0 = time.time()
+        _h = hashlib.sha1()
+        with gzip.open(cif, "rb") as _fh:
+            for _block in iter(lambda: _fh.read(1 << 20), b""):
+                _h.update(_block)
+        cif_sha1 = _h.hexdigest()
         structure, complete, qc = load_chain_from_mmcif(cif, key[1], row["sequence"].strip())
         arrays = truth_arrays(structure, complete, radii, n_points, modified=qc["modified_residues"],
                               shadow_threshold=shadow_threshold)
@@ -164,6 +181,9 @@ def process_entry(task):
         "reference": "gxg_staggered_chi_grid_v1 (clash_scale 0.80)",
         "sequence": row["sequence"].strip(), "seconds": round(time.time() - t0, 2), "qc": qc,
         "package_version": pkg_version,
+        # hash of the DECOMPRESSED structure the arrays were computed from; score_candidates.py refuses to score against a
+        # cache whose content has changed since (a re-download with a different gzip header hashes the same)
+        "source_cif_name": cif.name, "source_cif_sha1": cif_sha1,
     }
     tmp = Path(out_dir) / f".{name}.tmp.npz"
     np.savez_compressed(tmp, meta=np.array(json.dumps(meta)), **arrays)
