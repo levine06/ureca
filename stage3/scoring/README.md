@@ -39,7 +39,7 @@ python stage3/scoring/score_candidates.py \
 
 ## What the checks do
 
-- Candidates are verified, not assumed: residue names must match the Stage 1 sequence, and a candidate must cover every residue resolved in the experiment. Anything less is reported in `failures.csv` and never scored on an easier subset.
+- Candidates are verified, not assumed: residue names must match the Stage 1 sequence, and a candidate must cover every residue resolved in the experiment. Anything less is recorded in the entry's `failed_candidates` (the entry itself goes to `failures.csv` if too few candidates remain) and never scored on an easier subset.
 - By default each candidate is first restricted to the atoms the experiment resolved (`truth_atoms`), so missing experimental atoms do not count as a structural difference. Other options are `truth_residues` and `all_atoms` (see `accessfold/scoring.py`).
 - Re-running is safe. A result is reused only if the fingerprint of the candidate files, truth file, structure cache and settings still matches. `--shard i/n` splits the work and `--collect-only` rebuilds the tables.
 
