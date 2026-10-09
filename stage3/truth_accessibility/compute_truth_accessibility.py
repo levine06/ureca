@@ -1,27 +1,25 @@
 #!/usr/bin/env python
-"""Stage 3, step 1: accessibility of the TRUE (experimental) structures listed in the Stage 1 CSV files.
+"""Calculate true synthetic accessibility from experimental structures.
 
-For every row (pdb_id, label_chain_id, sequence) it downloads the mmCIF file, extracts that one chain indexed by
-sequence position (via label_seq_id, no numbering heuristics), computes relative/absolute solvent-accessible surface
-area at several probe radii, and saves one .npz per entry plus summary tables.
+Input: development/validation CSVs and experimental PDB mmCIF structures.
+Output: per-chain NPZ accessibility arrays, summary.csv, residues.csv.gz and
+failure reports. Values include absolute, relative and side-chain accessibility
+at the selected probe radii, with masks and quality-control metadata.
 
-Typical use (login node has internet, compute nodes may not):
+"True" means calculated from experimental coordinates, not measured in solution.
+This script does not generate or score OpenFold3 predictions.
 
-    pip install -e "stage2[biotite]"            # numpy, scipy, biotite
-
-    # 1) download every structure once (4 polite parallel downloads)
-    python compute_truth_accessibility.py --csv development.csv validation.csv test_a.csv test_b.csv \\
+Run from this package folder:
+    python -m pip install -e ".[biotite]"
+    python compute_truth_accessibility.py --csv development.csv validation.csv \\
         --cache-dir cif_cache --out truth_out --download-only --workers 4
+    python compute_truth_accessibility.py --csv development.csv validation.csv \\
+        --cache-dir cif_cache --out truth_out --offline --workers 4
 
-    # 2) compute on the cluster, offline, resumable; split into 8 SLURM array tasks with --shard
-    python compute_truth_accessibility.py --csv ... --cache-dir cif_cache --out truth_out \\
-        --offline --workers 16 --shard $SLURM_ARRAY_TASK_ID/8
-
-    # 3) after all shards finished: assemble truth_out/summary.csv and truth_out/residues.csv.gz
-    python compute_truth_accessibility.py --csv ... --out truth_out --collect-only
-
-Outputs in --out:  <PDB>_<label_chain>.npz (arrays + JSON metadata), failures.csv, summary.csv, residues.csv.gz.
-Rerunning skips entries whose .npz exists (use --overwrite to recompute).
+On PBS, workers must not exceed allocated CPUs. --shard i/n supports batch
+partitioning; --collect-only assembles saved outputs after all shards finish.
+Existing NPZs are skipped: use a separate output directory or --overwrite when
+changing inputs or settings.
 """
 
 from __future__ import annotations
@@ -144,6 +142,7 @@ def process_entry(task):
                 _h.update(_block)
         cif_sha1 = _h.hexdigest()
         structure, complete, qc = load_chain_from_mmcif(cif, key[1], row["sequence"].strip())
+        # True synthetic accessibility from experimental coordinates, with validity masks.
         arrays = truth_arrays(structure, complete, radii, n_points, modified=qc["modified_residues"],
                               shadow_threshold=shadow_threshold)
         try:  # Stage 1's coverage vs usable-coordinate coverage

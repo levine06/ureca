@@ -5,22 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "accessfold"
 version = "0.1.0"
-description = "Synthetic residue-level accessibility measurements (Stage 2) for experiment-guided structure prediction"
+description = "Stage 3 experimental and candidate accessibility scoring"
 requires-python = ">=3.9"
 dependencies = ["numpy>=1.22", "scipy>=1.8"]
 
 [project.optional-dependencies]
 biotite = ["biotite>=0.40"]
-# only needed to (re)build maximum-ASA reference tables; the SASA core needs just numpy + scipy
-crosscheck = ["freesasa"]  # optional Lee-Richards cross-check in the tests (install with --use-pep517)
-reference-builder = ["PeptideBuilder>=1.1", "biopython"]
-test = ["pytest", "biotite>=0.40", "PeptideBuilder>=1.1", "biopython"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 accessfold = ["data/references/*.json"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]

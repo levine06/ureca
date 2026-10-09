@@ -1,27 +1,23 @@
 #!/usr/bin/env python
-"""Stage 3 pre-flight for OpenFold3 predictions: check them against Stage 1, and write the ranking table that
-score_candidates.py reads.
+"""Prepare existing OpenFold3 outputs; no accessibility or accuracy calculations.
 
-OpenFold3 writes (see https://openfold-3.readthedocs.io/en/latest/inference.html)
-    <output_dir>/<query>/seed_<seed>/<query>_seed_<seed>_sample_<i>_model.cif          (or .pdb)
-    <output_dir>/<query>/seed_<seed>/<query>_seed_<seed>_sample_<i>_confidences_aggregated.json
-This script walks that tree and, for every model
-  * maps the query name to a Stage 1 entry (`2ID7_A` exactly, or the bare PDB id when that is unambiguous);
-  * VERIFIES the model against the Stage 1 sequence with the same reader score_candidates.py uses (chain present, residue
-    names equal to the sequence, numbering 1..N, no duplicate atoms), so problems show up now and not after hours of scoring;
-  * reads `sample_ranking_score` (and avg_plddt, ptm, iptm, gpde, has_clash) from the sibling aggregated JSON.
-It writes ranking.csv (columns entry, candidate, score, ...) which score_candidates.py accepts as --ranking-csv with no
-extra options, prints a per-entry report, and prints the --candidates pattern to use. Nothing is scored here.
+Candidate OpenFold3 structure generation belongs to
+../candidate_generation/generate_candidates.py, not this script.
 
-    python stage3/scoring/prepare_openfold3_outputs.py --csv development.csv validation.csv --predictions of3_out --out ranking.csv
-    python stage3/scoring/score_candidates.py --csv development.csv validation.csv --truth-dir truth_out --cache-dir cif_cache \\
-        --candidates "of3_out/{entry}/seed_*/*_model.cif*" --candidate-chain A --ranking-csv ranking.csv --out scores_out
+Input: existing OpenFold3 model files and the development/validation CSVs.
+This script checks candidate sequences/chains, matches files to dataset entries,
+and reads ranking scores from sibling *_confidences_aggregated.json files.
+Output: ranking.csv, a validation report and the actual --candidates path to use
+for score_candidates.py. Missing confidence files leave scores blank; structural
+and accessibility calculations can proceed without model-ranking comparisons.
 
---chain: the chain id inside the OpenFold3 files (default A; `auto` takes the single polymer chain of each file). Whether
-OpenFold3 keeps your query chain id, and numbers residues 1..N, is checked here, not assumed.
-Direction of the ranking score: higher is assumed better (as for AlphaFold3's ranking score); the OpenFold3 page does not
-say so explicitly and gives no weights, so confirm it on one entry before relying on top-ranked results.
-Exit status 1 if any model failed validation or any Stage 1 entry has no predictions (use --allow-missing to accept the latter).
+    python stage3/scoring/prepare_openfold3_outputs.py --csv development.csv validation.csv \\
+        --predictions of3_out --out ranking.csv
+
+--chain is the model's label_asym_id for CIFs (default A); auto requires one
+polymer chain. Higher ranking scores are treated as better.
+Exit status 1 means a candidate failed validation or a dataset entry had no
+predictions; --allow-missing permits entries that have not been generated yet.
 """
 
 from __future__ import annotations

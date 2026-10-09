@@ -8,7 +8,7 @@ For every candidate, `score_candidates.py` computes:
 - **Accessibility error** against the saved truth profile, on exactly the residues in the truth `mask`.
 - **Structural error** against the experimental chain: Cα RMSD (primary), lDDT-Cα and TM-score.
 
-The calculations live in the `accessfold` package in `truth_accessibility/src/accessfold/` (`scoring.py`, `structure_metrics.py`, `controls.py`, `structures/predicted.py`). This folder holds only the two command-line scripts and their tests.
+The calculations live in the `accessfold` package in `truth_accessibility/src/accessfold/` (`scoring.py`, `structure_metrics.py`, `controls.py`, `structures/predicted.py`). This folder holds the two command-line scripts.
 
 ## Files
 
@@ -16,7 +16,6 @@ The calculations live in the `accessfold` package in `truth_accessibility/src/ac
 |---|---|
 | `prepare_openfold3_outputs.py` | checks the OpenFold3 outputs against Stage 1 and writes `ranking.csv`; scores nothing |
 | `score_candidates.py` | computes the accessibility and structural errors for every candidate |
-| `tests/` | tests for both scripts, on synthetic structures |
 
 ## Workflow
 
@@ -45,3 +44,7 @@ python stage3/scoring/score_candidates.py \
 - Re-running is safe. A result is reused only if the fingerprint of the candidate files, truth file, structure cache and settings still matches. `--shard i/n` splits the work and `--collect-only` rebuilds the tables.
 
 Outputs in `--out`: one `<entry>.npz` per protein, `candidate_scores.csv` (one row per candidate), `entry_summary.csv` (one row per entry) and `failures.csv`. See the docstring at the top of each script for the full list of options.
+
+Add `--accessibility-only` for candidate accessibility and accessibility errors,
+or `--structure-only` for structural accuracy. Without either flag the combined
+workflow is unchanged. Use separate output folders for each mode.

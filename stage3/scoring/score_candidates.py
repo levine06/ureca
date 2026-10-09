@@ -1,41 +1,46 @@
 #!/usr/bin/env python
-"""Stage 3, step 2: score candidate structures (e.g. OpenFold3 samples) against the experimental structures.
+"""Calculate candidate accessibility, accessibility error and structural accuracy.
 
-For every entry in the Stage 1 CSV(s) that has a truth file from `compute_truth_accessibility.py`, and every candidate
-structure found for it, this computes
-  * structural error against the experimental chain: Ca RMSD (primary), lDDT-Ca, TM-score
-    (residues = those resolved in the experiment; positions are paired by sequence index);
-  * accessibility error: candidate accessibility (same package, same probe radii and n_points as the truth) against
-    the saved truth profile, on exactly the truth-mask residues (see accessfold.scoring for the candidate environment).
+Predicted accessibility: calculate accessibility for each candidate.
+Accessibility error: compare with the experimental reference, using
+        matched atoms and valid reference positions by default. Reports include
+        MAE, RMSE and profile-correlation error at the saved probe radii.
+Structural accuracy: compare with experimental coordinates:
+        aligned C-alpha RMSD, lDDT-C-alpha and TM-score, plus pairwise RMSD.
+
+Choose one mode:
+    --accessibility-only  candidate accessibility and accessibility errors
+    --structure-only      structural accuracy
+    neither flag          both calculations (combined workflow)
+The flags are mutually exclusive. This script never generates predictions.
+
+Input for all modes: dataset CSVs, saved experimental-reference NPZs, their original CIF cache
+and candidate CIF/PDB files. --ranking-csv is optional and only supplies model
+ranking information; it does not measure structural accuracy.
 
     python stage3/scoring/score_candidates.py --csv development.csv validation.csv \\
         --truth-dir truth_out --cache-dir cif_cache \\
-        --candidates "preds/{entry}/*.cif*" --candidate-chain A \\
-        --ranking-csv ranking.csv --out scores_out --workers 8
+        --candidates "preds/*/{entry}/seed_*/*_model.cif*" \\
+        --accessibility-only --out accessibility_out --workers 8 --verify-truth
 
-`--candidates` is a glob; {entry} (e.g. 2ID7_A), {pdb_id} and {chain} are filled in per entry. Candidate files may be
-.cif/.cif.gz (chain = label_asym_id) or .pdb/.pdb.gz (numbered 1..N along the sequence).
-Candidates are VERIFIED, not assumed: residue identities must match the sequence, a candidate must cover every residue
-resolved in the experiment (Ca) and every truth-mask residue with all its heavy atoms (`--min-coverage`, default 1.0:
-anything less is reported in failures and in the entry's `failed_candidates`, never scored on an easier subset).
-`--ranking-csv` (optional; a candidate manifest works) joins the model's own ranking at collection time, so changing it
-never requires rescoring. Columns are auto-detected when unambiguous (entry / candidate file / score or rank), otherwise
-give them with `--ranking-columns entry=COL candidate=COL score=COL` (or `rank=COL`, 1 = best). HIGHER score = better.
-Candidates are identified by their path relative to the fixed (non-wildcard) directory part of --candidates, so equal file
-names in different folders never collide. The ORIGINAL manifest ranks are kept: top-ranked and best-of-top-N values are
-filled only when every candidate that belongs to that top N was actually scored (a failed top candidate is never replaced
-by the next survivor), every scored candidate has a score, and the manifest has no conflicting or ambiguous rows;
-otherwise they stay empty and `ranking_status` says why.
+Output: candidate_scores.csv, entry_summary.csv and one NPZ per entry.
+Single-mode outputs omit skipped calculations. Accessibility NPZs save candidate
+profiles as c[candidate,residue,radius], reference profiles as y, and identifiers
+and radii in JSON meta. --kind selects rel (default), abs or sc_rel.
+Use separate output folders for modes/runs. Combine matching entry/candidate
+identifiers later for accessibility-versus-accuracy analysis.
 
-Outputs in --out: <entry>.npz (all arrays needed by run_controls.py), candidate_scores.csv (one row per candidate),
-entry_summary.csv (one row per entry), failures.csv. A failed entry's previous result is moved to <out>/_quarantine/ and the tables are built only from the entries of the
-current CSV selection, so a stale result can never appear in them. `--verify-truth` recomputes the truth accessibility from
-the cached structure and compares it with the saved file (truth files made by the current compute_truth_accessibility.py
-also carry a hash of their source structure, which is always checked).
-Resumable: an existing <entry>.npz is reused only if a fingerprint
-(candidate files + their content hashes, truth file, structure cache, environment, kind, chain, coverage rule, code schema)
-still matches; otherwise it is recomputed. Shardable (--shard i/n); --collect-only rebuilds the two tables from the .npz
-files (and applies --ranking-csv). The exit status is 1 if any entry failed, so schedulers see incomplete runs.
+Candidate correspondence and coverage are checked before scoring. Default
+--min-coverage 1.0 requires reference C-alpha coverage; accessibility modes also
+require complete heavy atoms at reference-mask positions. Failed candidates are
+recorded, not promoted into the original top ranks. Top-N summaries require
+valid ranking scores and all candidates relevant to that top N.
+
+--verify-truth recomputes the reference accessibility (including on reuse when
+not yet verified); it cannot be used with --structure-only. Input/settings/mode
+fingerprints control reuse. Failed entry outputs are quarantined.
+--shard i/n supports partitioning; --collect-only assembles saved outputs for
+the selected mode. Exit status 1 reports entry failures or conflicting rankings.
 """
 
 from __future__ import annotations
@@ -60,7 +65,7 @@ from pathlib import Path
 
 import numpy as np
 
-SCHEMA = 3                      # bump when the stored arrays or their meaning change (invalidates old results)
+SCHEMA = 4                      # bump when the stored arrays or their meaning change (invalidates old results)
 THRESHOLDS_A = (1.0, 2.0, 4.0)
 
 
@@ -305,8 +310,11 @@ def verify_reused(target, tpath, cif, key, old, out_dir):
 # ------------------------------------------------------------------------------------------------ compute
 def process_entry(task):
     """Returns (entry, error or None, status) with status in {"scored", "reused", "reused+verified", "stale->rescored", "failed"}."""
+    mode = task[12] if len(task) > 12 else "combined"
+    do_accessibility = mode != "structure"
+    do_structure = mode != "accessibility"
     (row, truth_dir, cache_dir, pattern, cand_chain, out_dir, environment, kind, overwrite,
-     min_candidates, min_coverage, verify_truth) = task
+     min_candidates, min_coverage, verify_truth) = task[:12]
     key = row["_key"]
     name = entry_name(key)
     target = Path(out_dir) / f"{name}.npz"
@@ -330,7 +338,7 @@ def process_entry(task):
         pairs = [(candidate_id(f, root), f) for f in files]
         if len({c for c, _ in pairs}) != len(pairs):
             raise RuntimeError("candidate identifiers (paths relative to the candidate root) are not unique")
-        fp = fingerprint(pairs, tpath, cif, environment, kind, cand_chain, min_coverage)
+        fp = fingerprint(pairs, tpath, cif, environment, kind, cand_chain, min_coverage) + ":" + mode
         if target.exists() and not overwrite:
             try:
                 with np.load(target, allow_pickle=False) as z:
@@ -342,7 +350,7 @@ def process_entry(task):
                 k_old = len(old["candidates"])
                 if k_old < min_candidates:                       # the stored result must satisfy the CURRENT requirement
                     raise RuntimeError(f"stored result has only {k_old} usable candidate(s) (<{min_candidates} required now)")
-                if verify_truth and "matched" not in str(old.get("truth_check", "")):
+                if verify_truth and do_accessibility and "matched" not in str(old.get("truth_check", "")):
                     verify_reused(target, tpath, cif, key, old, out_dir)      # reuse must not skip the requested check
                     return name, None, "reused+verified"
                 return name, None, "reused"
@@ -362,11 +370,11 @@ def process_entry(task):
         if not np.array_equal(tstruct.resolved_mask, truth["resolved"]):
             raise RuntimeError("truth file does not match the structure in the cache (different loader version or structure?)")
         mask = truth["mask"].astype(bool)
-        if verify_truth:
+        if verify_truth and do_accessibility:
             truth_note = check_truth_against_structure(truth, tmeta, tstruct, tcomplete, tqc, radii, n_points, mask)
         t_ca, t_has = ca_coordinates(tstruct)
-        y = truth_profile(truth, radii, kind)
-        needed = mask[:, None] & np.isfinite(y)           # truth-DEFINED entries only (e.g. glycine has no side-chain value)
+        y = truth_profile(truth, radii, kind) if do_accessibility else None
+        needed = mask[:, None] & np.isfinite(y) if do_accessibility else None           # truth-DEFINED entries only (e.g. glycine has no side-chain value)
 
         # Everything for one candidate is computed first and appended TOGETHER, so a failure at any step can never leave
         # one candidate's metrics paired with another candidate's identifier.
@@ -376,14 +384,17 @@ def process_entry(task):
                 cand, cand_complete, qc = load_predicted_chain(f, cand_chain, sequence)
                 c_ca, c_has = ca_coordinates(cand)
                 cov_ca = float((c_has & t_has).sum() / t_has.sum())
-                prof = candidate_profile(cand, tstruct, truth, radii, n_points, environment, kind)
-                usable = (~needed | np.isfinite(prof)).all(axis=1) & cand_complete
+                # Predicted accessibility for this candidate.
+                prof = candidate_profile(cand, tstruct, truth, radii, n_points, environment, kind) if do_accessibility else None
+                usable = ((~needed | np.isfinite(prof)).all(axis=1) & cand_complete) if do_accessibility else cand_complete
                 cov_mask = float(usable[mask].mean()) if mask.any() else 1.0
-                if min(cov_ca, cov_mask) < min_coverage:
+                coverage = min(cov_ca, cov_mask) if do_accessibility else cov_ca
+                if coverage < min_coverage:
                     raise ValueError(f"incomplete candidate: Ca present for {cov_ca:.3f} of the truth-resolved residues, complete "
                                      f"atoms and defined accessibility for {cov_mask:.3f} of the truth-mask residues "
                                      f"(required: {min_coverage})")
-                met = structural_metrics(t_ca, t_has, c_ca, c_has)
+                # Structural accuracy against experimental geometry.
+                met = structural_metrics(t_ca, t_has, c_ca, c_has) if do_structure else None
             except Exception as exc:  # noqa: BLE001 - one bad candidate must not lose the entry
                 failed.append(f"{cid}: {type(exc).__name__}: {exc}")
                 continue
@@ -398,28 +409,36 @@ def process_entry(task):
         if len(names) < min_candidates:
             raise RuntimeError(f"only {len(names)} usable candidate(s) (<{min_candidates}); failures: {failed[:3]}")
 
-        c_all = np.stack(profiles).astype(np.float32)                      # [K, N, R]
-        mae, rmse, n_ac = error_matrix(y, c_all.astype(float))
-        corr_err, _ = corr_error_matrix(y, c_all.astype(float))
-        common = t_has & np.logical_and.reduce(has_l)
-        if common.sum() >= 3:
-            pair = pairwise_rmsd(np.stack([c[common] for c in cas])).astype(np.float32)
-        else:
-            pair = np.full((len(names), len(names)), np.nan, np.float32)
+        if do_accessibility:
+            c_all = np.stack(profiles).astype(np.float32)
+            # Accessibility errors against the saved experimental reference.
+            mae, rmse, n_ac = error_matrix(y, c_all.astype(float))
+            corr_err, _ = corr_error_matrix(y, c_all.astype(float))
+        if do_structure:
+            # Structural spread between candidates.
+            common = t_has & np.logical_and.reduce(has_l)
+            if common.sum() >= 3:
+                pair = pairwise_rmsd(np.stack([c[common] for c in cas])).astype(np.float32)
+            else:
+                pair = np.full((len(names), len(names)), np.nan, np.float32)
         meta = {"entry": name, "pdb_id": key[0], "chain": key[1], "split": tmeta.get("split", ""),
                 "sequence_length": len(sequence), "radii": radii, "n_points": n_points, "environment": environment,
-                "kind": kind, "min_coverage": min_coverage, "candidates": names, "failed_candidates": failed,
+                "kind": kind, "mode": mode, "min_coverage": min_coverage, "candidates": names, "failed_candidates": failed,
                 "candidate_warnings": warns, "n_residues_structural": int(t_has.sum()),
                 "n_residues_accessibility": int(mask.sum()), "fingerprint": fp, "schema": SCHEMA,
                 "truth_source_sha1": src_hash, "truth_check": truth_note, "seconds": round(time.time() - t0, 2)}
         arrays = {
-            "rmsd_ca": np.array([m["rmsd_ca"] for m in mets]), "lddt_ca": np.array([m["lddt_ca"] for m in mets]),
-            "tm_score": np.array([m["tm_score"] for m in mets]), "n_common": np.array([m["n_common"] for m in mets]),
-            "n_reference": np.array([m["n_reference"] for m in mets]),
-            "coverage_ca": np.array([c[0] for c in covs]), "coverage_mask": np.array([c[1] for c in covs]),
-            "ac_mae": mae, "ac_rmse": rmse, "ac_corr": corr_err, "n_ac": n_ac, "y": y, "c": c_all, "mask": truth["mask"],
-            "gap_distance": truth["gap_distance"], "pair_rmsd": pair,
+            "coverage_ca": np.array([c[0] for c in covs]),
+            "coverage_mask": np.array([c[1] for c in covs]),
         }
+        if do_structure:
+            arrays.update(
+                rmsd_ca=np.array([m["rmsd_ca"] for m in mets]), lddt_ca=np.array([m["lddt_ca"] for m in mets]),
+                tm_score=np.array([m["tm_score"] for m in mets]), n_common=np.array([m["n_common"] for m in mets]),
+                n_reference=np.array([m["n_reference"] for m in mets]), pair_rmsd=pair)
+        if do_accessibility:
+            arrays.update(ac_mae=mae, ac_rmse=rmse, ac_corr=corr_err, n_ac=n_ac, y=y, c=c_all,
+                          mask=truth["mask"], gap_distance=truth["gap_distance"])
         tmp = Path(out_dir) / f".{name}.tmp.npz"
         np.savez_compressed(tmp, meta=np.array(json.dumps(meta)), **arrays)
         tmp.replace(target)
@@ -433,7 +452,7 @@ def process_entry(task):
 
 
 # ------------------------------------------------------------------------------------------------ collect
-def collect(out_dir: Path, top_n=(1, 5, 20), ranking=None, entries=None):
+def collect(out_dir: Path, top_n=(1, 5, 20), ranking=None, entries=None, mode="combined"):
     """Build candidate_scores.csv / entry_summary.csv from the results of `entries` (a set of entry names; None = all).
     Returns (n_entries, n_ranking_problems)."""
     from accessfold.controls import spearman
@@ -454,11 +473,24 @@ def collect(out_dir: Path, top_n=(1, 5, 20), ranking=None, entries=None):
         if meta.get("schema") != SCHEMA:
             print(f"WARNING {f.name}: written by an older scoring schema ({meta.get('schema')}); rerun with --overwrite", file=sys.stderr)
             continue
+        stored_mode = meta.get("mode", "combined")
+        if stored_mode != mode:
+            notes.append(f"ignored {f.name}: mode {stored_mode}, requested {mode}")
+            continue
         radii = meta["radii"]
         k = len(meta["candidates"])
-        e = aggregate_radii(a["ac_mae"], a["n_ac"])
-        e_rmse = aggregate_radii(a["ac_rmse"], a["n_ac"])
-        e_corr = aggregate_radii(a["ac_corr"], a["n_ac"])
+        # Placeholders are only for the shared collector, never saved or exported.
+        if mode == "accessibility":
+            for key in ("rmsd_ca", "lddt_ca", "tm_score", "n_common", "n_reference"):
+                a[key] = np.zeros(k)
+            a["pair_rmsd"] = np.zeros((k, k))
+        elif mode == "structure":
+            for key in ("ac_mae", "ac_rmse", "ac_corr"):
+                a[key] = np.full((k, len(radii)), np.nan)
+            a["n_ac"] = np.zeros((k, len(radii)), int)
+        e = aggregate_radii(a["ac_mae"], a["n_ac"]) if mode != "structure" else np.full(k, np.nan)
+        e_rmse = aggregate_radii(a["ac_rmse"], a["n_ac"]) if mode != "structure" else np.full(k, np.nan)
+        e_corr = aggregate_radii(a["ac_corr"], a["n_ac"]) if mode != "structure" else np.full(k, np.nan)
         rm = a["rmsd_ca"]
         fin = np.isfinite(rm)
 
@@ -495,7 +527,7 @@ def collect(out_dir: Path, top_n=(1, 5, 20), ranking=None, entries=None):
                  "ac_corr_error": e_corr[i], "n_ac_residues": int(a["n_ac"][i].min())}
             for j, rad in enumerate(radii):
                 r[f"ac_mae_{rad:g}"] = a["ac_mae"][i, j]
-            cand_rows.append(r)
+            cand_rows.append(mode_columns(r, mode))
 
         iu = np.triu_indices(k, 1)
         pr = a["pair_rmsd"][iu]
@@ -526,7 +558,7 @@ def collect(out_dir: Path, top_n=(1, 5, 20), ranking=None, entries=None):
             err = rm if m == "rmsd_ca" else 1.0 - a[m]
             s[f"rho_ac_vs_{label}"] = spearman(e, err)
             s[f"rho_accorr_vs_{label}"] = spearman(e_corr, err)
-        entry_rows.append(s)
+        entry_rows.append(mode_columns(s, mode))
     for n in notes[:10]:
         print("NOTE:", n, file=sys.stderr)
     bad = [r for r in entry_rows if ranking and r["ranking_status"] not in ("complete",)]
@@ -549,6 +581,17 @@ def collect(out_dir: Path, top_n=(1, 5, 20), ranking=None, entries=None):
     write(out_dir / "candidate_scores.csv", cand_rows)
     write(out_dir / "entry_summary.csv", entry_rows)
     return len(entry_rows), n_problem
+
+
+def mode_columns(row, mode):
+    if mode == "combined":
+        return row
+    structural = lambda key: key.startswith(("rmsd", "lddt", "tm_", "pair_rmsd", "n_within", "rho_", "top1_")) or key in {
+        "n_reference", "n_common", "n_residues_structural", "n_tied_at_top1", "topN_unavailable_reason"}
+    accessibility = lambda key: key.startswith(("ac_", "n_ac")) or key in {"n_residues_accessibility"}
+    if mode == "accessibility":
+        return {k: v for k, v in row.items() if not structural(k)}
+    return {k: v for k, v in row.items() if not accessibility(k) and not k.startswith("rho_")}
 
 
 def parse_columns(items):
@@ -575,6 +618,9 @@ def main():
                     help="override column detection: entry=.. candidate=.. score=.. (higher = better) or rank=.. (1 = best)")
     ap.add_argument("--out", default="scores_out")
     ap.add_argument("--environment", default="truth_atoms", choices=["truth_atoms", "truth_residues", "all_atoms"])
+    modes = ap.add_mutually_exclusive_group()
+    modes.add_argument("--accessibility-only", action="store_true", help="skip structural metrics and pairwise RMSD")
+    modes.add_argument("--structure-only", action="store_true", help="skip accessibility calculations and errors")
     ap.add_argument("--kind", default="rel", choices=["rel", "abs", "sc_rel"])
     ap.add_argument("--min-candidates", type=int, default=2)
     ap.add_argument("--min-coverage", type=float, default=1.0,
@@ -591,6 +637,9 @@ def main():
     ap.add_argument("--overwrite", action="store_true")
     ap.add_argument("--collect-only", action="store_true")
     a = ap.parse_args()
+    mode = "accessibility" if a.accessibility_only else "structure" if a.structure_only else "combined"
+    if a.structure_only and a.verify_truth:
+        ap.error("--verify-truth recalculates accessibility; omit it with --structure-only")
     out_dir = Path(a.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     ranking = read_ranking(a.ranking_csv, parse_columns(a.ranking_columns))
@@ -602,7 +651,7 @@ def main():
         rows = rows[: a.limit]
     names = {entry_name(r["_key"]) for r in rows}
     if a.collect_only:
-        n, bad = collect(out_dir, tuple(a.top_n), ranking, names)
+        n, bad = collect(out_dir, tuple(a.top_n), ranking, names, mode)
         print(f"collected {n} entries -> {out_dir}")
         if bad:
             sys.exit(1)
@@ -612,7 +661,7 @@ def main():
     i, n = (int(x) for x in a.shard.split("/"))
     rows = rows[i::n]
     tasks = [(r, a.truth_dir, a.cache_dir, a.candidates, a.candidate_chain, str(out_dir), a.environment, a.kind,
-              a.overwrite, a.min_candidates, a.min_coverage, a.verify_truth) for r in rows]
+              a.overwrite, a.min_candidates, a.min_coverage, a.verify_truth, mode) for r in rows]
     fails, t0 = [], time.time()
     if a.workers <= 1:
         results = (process_entry(t) for t in tasks)
@@ -636,7 +685,7 @@ def main():
         fp.unlink()                                  # a clean run must not leave a stale failure list behind
     bad = 0
     if n == 1:
-        cnt, bad = collect(out_dir, tuple(a.top_n), ranking, {entry_name(r["_key"]) for r in rows})
+        cnt, bad = collect(out_dir, tuple(a.top_n), ranking, {entry_name(r["_key"]) for r in rows}, mode)
         print(f"collected {cnt} entries; {time.time() - t0:.0f}s")
     if fails or bad:
         sys.exit(1)                                  # schedulers (PBS/SLURM) must see an incomplete run as a failure
