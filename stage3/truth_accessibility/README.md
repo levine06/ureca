@@ -4,7 +4,9 @@ Calculate synthetic reference accessibility from experimental PDB structures in 
 The calculation engine and reference tables are unchanged from [Stage 2](../../stage2/README.md);
 existing method validation is documented [there](../../stage2/validation/README.md).
 Stage 2 files are not modified. "Truth" means calculated from the experimental coordinate model,
-not measured accessibility in solution. Candidate generation and RMSD evaluation are separate.
+not measured accessibility in solution. This is step 1 of the [Stage 3 experiment](../README.md);
+candidate generation and candidate accessibility are separate steps
+([`candidate_generation/`](../candidate_generation/README.md), [`candidate_accessibility/`](../candidate_accessibility/README.md)).
 
 ## New Loading and Masking
 
@@ -22,14 +24,20 @@ not measured accessibility in solution. Candidate generation and RMSD evaluation
 
 ## Batch Workflow
 
-Run from this folder in a separate Python environment. CSVs require `pdb_id`, `label_chain_id`
-and `sequence`. Replace the example paths with your actual CSV paths.
+Run from this folder (`stage3/truth_accessibility/`) in a separate Python environment. The Stage 1 CSVs
+(`stage1/datasets/`) must contain `pdb_id`, `label_chain_id` and `sequence`.
 
 ```bash
 python -m pip install -e ".[biotite]"
-python scripts/compute_truth_accessibility.py --csv development.csv validation.csv \
+
+# 1) download every structure once (needs internet; run on a login node)
+python scripts/compute_truth_accessibility.py \
+  --csv ../../stage1/datasets/development.csv ../../stage1/datasets/validation.csv \
   --cache-dir cif_cache --out truth_out --download-only --workers 4
-python scripts/compute_truth_accessibility.py --csv development.csv validation.csv \
+
+# 2) compute, offline
+python scripts/compute_truth_accessibility.py \
+  --csv ../../stage1/datasets/development.csv ../../stage1/datasets/validation.csv \
   --cache-dir cif_cache --out truth_out --offline --workers 4
 ```
 
@@ -43,13 +51,19 @@ Outputs: per-chain `.npz` arrays, masks and metadata; `summary.csv`; `residues.c
 when entries fail. Cluster outputs are separate from the committed code. Candidate comparisons must
 use the saved reference masks and matching calculation settings.
 
-## Dataset Check
+## Results
 
-The updated pipeline completed 30 development and 15 validation chains on the CPU cluster.
-The summary confirms CYQ at position 56 and five shadow exclusions in 2ID7, and distinguishes
-165 coordinate-record positions from 160 usable positions in 3RF2. The other flagged entries
-(2BE4, 2O6W, 4DXZ and 4H4J) contain only selenomethionine modifications.
-All 45 chains pass 90% usable-coordinate coverage. Test A and Test B have not been run.
+The pipeline was run on the CPU cluster for the 30 development and 15 validation chains. The outputs are in
+[`results/`](results/README.md).
 
-Remaining choices are the 5 A^2 shadow threshold, alternative-conformation selection and uncertainty
-near missing regions. Shadow masking does not estimate shielding by unresolved loops.
+- All 45 chains pass 90% usable-coordinate coverage.
+- 2ID7 has a modified cysteine (CYQ) at position 56 and five residues masked by shadow exclusion.
+- 3RF2 has 165 coordinate-record positions but 160 usable positions.
+- 2BE4, 2O6W, 4DXZ and 4H4J are flagged only because they contain selenomethionine, which is accepted.
+- Test A and Test B have not been run.
+
+## Known Limitations
+
+- The 5 A^2 shadow threshold, alternative-conformation selection and uncertainty near missing regions are
+  choices that have not been tested for sensitivity.
+- Shadow masking does not estimate shielding by unresolved loops.

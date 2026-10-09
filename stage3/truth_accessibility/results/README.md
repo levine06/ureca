@@ -11,10 +11,5 @@ candidate comparisons. The CSV rounds absolute areas to three decimals and relat
 All files were checked for matching entries, updated masking metadata and masked relative values.
 
 Settings: probe radii 1.4, 2.5, 4.0 and 6.0 A; 1,000 points; gap flank zero; shadow threshold 5 A^2.
-Copies remain on the cluster at:
-
-```text
-/home/mlee116/accessibility-run/accessfold/truth_dev_validation_updated/
-```
-
-Use outputs from that updated run; the earlier run predates the masking fixes.
+These files are the outputs of the updated run (with the masking fixes). The earlier run predates those fixes and
+should not be used.
