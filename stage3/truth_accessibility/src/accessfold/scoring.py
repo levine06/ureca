@@ -27,7 +27,7 @@ from accessfold.accessibility.compute import compute_accessibility
 from accessfold.structures.atomic import AtomicStructure
 
 ENVIRONMENTS = ("truth_atoms", "truth_residues", "all_atoms")
-KINDS = {"rel": "relative", "abs": "absolute", "sc_rel": "sidechain_relative"}
+KINDS = {"rel": "relative", "abs": "absolute", "sc_abs": "sidechain_absolute", "sc_rel": "sidechain_relative"}
 
 
 def _atom_keys(s: AtomicStructure) -> np.ndarray:
@@ -51,24 +51,36 @@ def restrict_environment(candidate: AtomicStructure, truth: AtomicStructure, env
                            candidate.residue_index[keep], candidate.residue_names, candidate.chain_id)
 
 
+def candidate_profiles(candidate: AtomicStructure, truth_structure: AtomicStructure, truth: Dict[str, np.ndarray],
+                       radii: Sequence[float], n_points: int, environment: str = "truth_atoms") -> Dict[str, np.ndarray]:
+    """All four [N, R] profiles, using one surface calculation per radius.
+
+    Values outside the reference mask are NaN; undefined side-chain values
+    (including glycine) remain NaN rather than being replaced with zero.
+    """
+    env = restrict_environment(candidate, truth_structure, environment)
+    cols = {kind: [] for kind in KINDS}
+    for radius in radii:
+        result = compute_accessibility(env, "relative_sasa", probe_radius=float(radius), n_points=n_points)
+        for kind, attr in KINDS.items():
+            cols[kind].append(np.where(truth["mask"], getattr(result, attr), np.nan))
+    return {kind: np.stack(values, axis=1) for kind, values in cols.items()}
+
+
 def candidate_profile(candidate: AtomicStructure, truth_structure: AtomicStructure, truth: Dict[str, np.ndarray],
                       radii: Sequence[float], n_points: int, environment: str = "truth_atoms",
                       kind: str = "rel") -> np.ndarray:
     """[N, R] accessibility of one candidate at each radius; NaN outside the truth mask (and where the value is undefined).
 
     `truth` is the dict of arrays saved by the truth pipeline (needs `mask`); `n_points` must be the value used there."""
-    env = restrict_environment(candidate, truth_structure, environment)
-    attr = KINDS[kind]
-    cols = []
-    for r in radii:
-        res = compute_accessibility(env, "relative_sasa", probe_radius=float(r), n_points=n_points)
-        cols.append(np.where(truth["mask"], getattr(res, attr), np.nan))
-    return np.stack(cols, axis=1)
+    return candidate_profiles(candidate, truth_structure, truth, radii, n_points, environment)[kind]
 
 
 def truth_profile(truth: Dict[str, np.ndarray], radii: Sequence[float], kind: str = "rel") -> np.ndarray:
     """[N, R] truth accessibility from the saved arrays (NaN outside the mask)."""
-    prefix = {"rel": "rel", "abs": "abs", "sc_rel": "sc_rel"}[kind]
+    if kind not in KINDS:
+        raise ValueError(f"unknown accessibility kind {kind!r}")
+    prefix = kind
     return np.stack([np.asarray(truth[f"{prefix}_{float(r):g}"], float) for r in radii], axis=1)
 
 

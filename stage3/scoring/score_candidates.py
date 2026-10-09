@@ -26,7 +26,10 @@ ranking information; it does not measure structural accuracy.
 Output: candidate_scores.csv, entry_summary.csv and one NPZ per entry.
 Single-mode outputs omit skipped calculations. Accessibility NPZs save candidate
 profiles as c[candidate,residue,radius], reference profiles as y, and identifiers
-and radii in JSON meta. --kind selects rel (default), abs or sc_rel.
+and radii in JSON meta. All four profiles are always saved in accessibility modes:
+abs_<radius>, rel_<radius>, sc_abs_<radius>, sc_rel_<radius> [candidate,residue].
+--kind selects only the headline comparison (default rel), not the saved profiles.
+candidate_residues.csv.gz exports all profiles with candidate/residue identifiers.
 Use separate output folders for modes/runs. Combine matching entry/candidate
 identifiers later for accessibility-versus-accuracy analysis.
 
@@ -65,7 +68,7 @@ from pathlib import Path
 
 import numpy as np
 
-SCHEMA = 4                      # bump when the stored arrays or their meaning change (invalidates old results)
+SCHEMA = 5                      # bump when the stored arrays or their meaning change (invalidates old results)
 THRESHOLDS_A = (1.0, 2.0, 4.0)
 
 
@@ -320,7 +323,7 @@ def process_entry(task):
     target = Path(out_dir) / f"{name}.npz"
     status = "scored"
     try:
-        from accessfold.scoring import candidate_profile, corr_error_matrix, error_matrix, truth_profile
+        from accessfold.scoring import candidate_profiles, corr_error_matrix, error_matrix, truth_profile
         from accessfold.structure_metrics import ca_coordinates, pairwise_rmsd, structural_metrics
         from accessfold.structures.mmcif import load_chain_from_mmcif
         from accessfold.structures.predicted import load_predicted_chain
@@ -385,7 +388,8 @@ def process_entry(task):
                 c_ca, c_has = ca_coordinates(cand)
                 cov_ca = float((c_has & t_has).sum() / t_has.sum())
                 # Predicted accessibility for this candidate.
-                prof = candidate_profile(cand, tstruct, truth, radii, n_points, environment, kind) if do_accessibility else None
+                all_profiles = candidate_profiles(cand, tstruct, truth, radii, n_points, environment) if do_accessibility else None
+                prof = all_profiles[kind] if do_accessibility else None
                 usable = ((~needed | np.isfinite(prof)).all(axis=1) & cand_complete) if do_accessibility else cand_complete
                 cov_mask = float(usable[mask].mean()) if mask.any() else 1.0
                 coverage = min(cov_ca, cov_mask) if do_accessibility else cov_ca
@@ -400,7 +404,7 @@ def process_entry(task):
                 continue
             names.append(cid)
             mets.append(met)
-            profiles.append(prof)
+            profiles.append(all_profiles)
             cas.append(c_ca)
             has_l.append(c_has)
             covs.append((cov_ca, cov_mask))
@@ -410,7 +414,8 @@ def process_entry(task):
             raise RuntimeError(f"only {len(names)} usable candidate(s) (<{min_candidates}); failures: {failed[:3]}")
 
         if do_accessibility:
-            c_all = np.stack(profiles).astype(np.float32)
+            profile_arrays = {key: np.stack([p[key] for p in profiles]) for key in ("abs", "rel", "sc_abs", "sc_rel")}
+            c_all = profile_arrays[kind]
             # Accessibility errors against the saved experimental reference.
             mae, rmse, n_ac = error_matrix(y, c_all.astype(float))
             corr_err, _ = corr_error_matrix(y, c_all.astype(float))
@@ -438,7 +443,18 @@ def process_entry(task):
                 n_reference=np.array([m["n_reference"] for m in mets]), pair_rmsd=pair)
         if do_accessibility:
             arrays.update(ac_mae=mae, ac_rmse=rmse, ac_corr=corr_err, n_ac=n_ac, y=y, c=c_all,
-                          mask=truth["mask"], gap_distance=truth["gap_distance"])
+                          mask=truth["mask"], gap_distance=truth["gap_distance"], residue_names=tstruct.residue_names)
+            for prefix, values in profile_arrays.items():
+                reference = truth_profile(truth, radii, prefix)
+                err_mae, err_rmse, counts = error_matrix(reference, values)
+                err_corr, _ = corr_error_matrix(reference, values)
+                arrays[f"ac_{prefix}_mae"] = err_mae
+                arrays[f"ac_{prefix}_rmse"] = err_rmse
+                arrays[f"ac_{prefix}_corr"] = err_corr
+                arrays[f"ac_{prefix}_n"] = counts
+                for j, radius in enumerate(radii):
+                    arrays[f"{prefix}_{radius:g}"] = values[:, :, j]
+                    arrays[f"truth_{prefix}_{radius:g}"] = reference[:, j]
         tmp = Path(out_dir) / f".{name}.tmp.npz"
         np.savez_compressed(tmp, meta=np.array(json.dumps(meta)), **arrays)
         tmp.replace(target)
@@ -460,6 +476,7 @@ def collect(out_dir: Path, top_n=(1, 5, 20), ranking=None, entries=None, mode="c
 
     ranking = ranking or Ranking()
     cand_rows, entry_rows, notes = [], [], []
+    collected_files = []
     n_problem = 0
     for f in sorted(out_dir.glob("*.npz")):
         if f.name.startswith("."):
@@ -477,6 +494,7 @@ def collect(out_dir: Path, top_n=(1, 5, 20), ranking=None, entries=None, mode="c
         if stored_mode != mode:
             notes.append(f"ignored {f.name}: mode {stored_mode}, requested {mode}")
             continue
+        collected_files.append(f)
         radii = meta["radii"]
         k = len(meta["candidates"])
         # Placeholders are only for the shared collector, never saved or exported.
@@ -527,6 +545,12 @@ def collect(out_dir: Path, top_n=(1, 5, 20), ranking=None, entries=None, mode="c
                  "ac_corr_error": e_corr[i], "n_ac_residues": int(a["n_ac"][i].min())}
             for j, rad in enumerate(radii):
                 r[f"ac_mae_{rad:g}"] = a["ac_mae"][i, j]
+            if mode != "structure":
+                r["ac_kind"] = meta["kind"]
+                for prefix in ("abs", "rel", "sc_abs", "sc_rel"):
+                    for j, radius in enumerate(radii):
+                        for metric, suffix in (("mae", "mae"), ("rmse", "rmse"), ("corr", "corr_error"), ("n", "n_residues")):
+                            r[f"ac_{prefix}_{suffix}_{radius:g}"] = a[f"ac_{prefix}_{metric}"][i, j]
             cand_rows.append(mode_columns(r, mode))
 
         iu = np.triu_indices(k, 1)
@@ -580,7 +604,42 @@ def collect(out_dir: Path, top_n=(1, 5, 20), ranking=None, entries=None, mode="c
 
     write(out_dir / "candidate_scores.csv", cand_rows)
     write(out_dir / "entry_summary.csv", entry_rows)
+    write_accessibility_residues(out_dir, collected_files, mode)
     return len(entry_rows), n_problem
+
+
+def write_accessibility_residues(out_dir, files, mode):
+    """Stream all four profiles to one residue table without keeping the table in memory."""
+    target = out_dir / "candidate_residues.csv.gz"
+    if mode == "structure" or not files:
+        if target.exists():
+            target.unlink()
+        return
+    tmp = out_dir / ".candidate_residues.tmp.csv.gz"
+    with gzip.open(tmp, "wt", newline="") as handle:
+        writer = csv.writer(handle)
+        header = None
+        for path in files:
+            with np.load(path, allow_pickle=False) as z:
+                meta = json.loads(str(z["meta"]))
+                columns = [f"{prefix}_{radius:g}" for prefix in ("abs", "rel", "sc_abs", "sc_rel")
+                           for radius in meta["radii"]]
+                fields = ["entry", "candidate", "seed", "sample", "position", "residue", "in_mask", "gap_distance", *columns]
+                if header is None:
+                    header = fields
+                    writer.writerow(header)
+                elif fields != header:
+                    raise ValueError("cannot combine different probe radii in one residue table; use separate output folders")
+                values = [z[key] for key in columns]
+                for k, cid in enumerate(meta["candidates"]):
+                    seed = re.search(r"seed_(\d+)", cid)
+                    sample = re.search(r"sample_(\d+)", cid)
+                    for i, residue in enumerate(z["residue_names"]):
+                        writer.writerow([meta["entry"], cid, seed.group(1) if seed else "",
+                                         sample.group(1) if sample else "", i + 1, residue,
+                                         int(z["mask"][i]), int(z["gap_distance"][i]),
+                                         *[float(v[k, i]) if np.isfinite(v[k, i]) else "" for v in values]])
+    tmp.replace(target)
 
 
 def mode_columns(row, mode):
@@ -621,7 +680,7 @@ def main():
     modes = ap.add_mutually_exclusive_group()
     modes.add_argument("--accessibility-only", action="store_true", help="skip structural metrics and pairwise RMSD")
     modes.add_argument("--structure-only", action="store_true", help="skip accessibility calculations and errors")
-    ap.add_argument("--kind", default="rel", choices=["rel", "abs", "sc_rel"])
+    ap.add_argument("--kind", default="rel", choices=["rel", "abs", "sc_abs", "sc_rel"])
     ap.add_argument("--min-candidates", type=int, default=2)
     ap.add_argument("--min-coverage", type=float, default=1.0,
                     help="a candidate must have Ca for this fraction of the truth-resolved residues AND complete atoms / defined "
