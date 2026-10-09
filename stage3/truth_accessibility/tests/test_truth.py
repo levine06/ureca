@@ -188,7 +188,7 @@ def test_cli_end_to_end_offline(cif_and_truth, tmp_path):
     csv_path.write_text(header + f"TEST,A,A,{SEQ},{len(SEQ)},1.5,0.9,development,2000-01-01\n"
                                  f"NOPE,A,A,{SEQ},{len(SEQ)},1.5,0.9,development,2000-01-01\n")
     out = tmp_path / "out"
-    script = Path(__file__).resolve().parents[1] / "scripts" / "compute_truth_accessibility.py"
+    script = Path(__file__).resolve().parents[1] / "compute_truth_accessibility.py"
     r = subprocess.run([sys.executable, str(script), "--csv", str(csv_path), "--cache-dir", str(cache), "--out", str(out),
                         "--offline", "--workers", "2", "--radii", "1.4", "6.0"], capture_output=True, text=True)
     assert r.returncode == 1, r.stdout + r.stderr          # NOPE has no cached file -> reported, batch continues

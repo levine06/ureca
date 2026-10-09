@@ -16,5 +16,4 @@ The accessibility error is then plotted against the structural error for every c
 |---|---|---|
 | 1 | True synthetic accessibility | [`truth_accessibility/`](truth_accessibility/README.md) |
 | 2 | Candidate generation | [`candidate_generation/`](candidate_generation/README.md) |
-| 3 | Candidate accessibility | [`candidate_accessibility/`](candidate_accessibility/README.md) |
-| 4-5 | Accessibility error, structural accuracy | not in this folder yet |
+| 3-5 | Candidate accessibility, accessibility error, structural accuracy | [`scoring/`](scoring/README.md) |

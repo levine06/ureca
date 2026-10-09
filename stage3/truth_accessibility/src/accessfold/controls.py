@@ -38,7 +38,7 @@ STRUCT_METRICS = ("rmsd_ca", "lddt_ca", "tm_score")
 
 @dataclass
 class Entry:
-    """One protein's saved scoring result (see `scripts/score_candidates.py`)."""
+    """One protein's saved scoring result (see `stage3/scoring/score_candidates.py`)."""
     name: str
     y: np.ndarray                      # [N, R] truth profile (NaN outside the mask)
     c: np.ndarray                      # [K, N, R] candidate profiles
@@ -58,7 +58,7 @@ class Entry:
 
 
 def load_entry(path, min_coverage: float = 1.0) -> "Entry":
-    """Entry from a `<entry>.npz` written by scripts/score_candidates.py.
+    """Entry from a `<entry>.npz` written by stage3/scoring/score_candidates.py.
 
     Candidates whose coverage (Ca of the truth-resolved residues, or complete atoms on the truth-mask residues) is below
     `min_coverage` are dropped: a candidate that skips part of the structure would otherwise be compared on an easier

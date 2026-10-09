@@ -5,8 +5,8 @@ The calculation engine and reference tables are unchanged from [Stage 2](../../s
 existing method validation is documented [there](../../stage2/validation/README.md).
 Stage 2 files are not modified. "Truth" means calculated from the experimental coordinate model,
 not measured accessibility in solution. This is step 1 of the [Stage 3 experiment](../README.md);
-candidate generation and candidate accessibility are separate steps
-([`candidate_generation/`](../candidate_generation/README.md), [`candidate_accessibility/`](../candidate_accessibility/README.md)).
+candidate generation and candidate scoring are separate steps
+([`candidate_generation/`](../candidate_generation/README.md), [`scoring/`](../scoring/README.md)).
 
 ## New Loading and Masking
 
@@ -31,12 +31,12 @@ Run from this folder (`stage3/truth_accessibility/`) in a separate Python enviro
 python -m pip install -e ".[biotite]"
 
 # 1) download every structure once (needs internet; run on a login node)
-python scripts/compute_truth_accessibility.py \
+python compute_truth_accessibility.py \
   --csv ../../stage1/datasets/development.csv ../../stage1/datasets/validation.csv \
   --cache-dir cif_cache --out truth_out --download-only --workers 4
 
 # 2) compute, offline
-python scripts/compute_truth_accessibility.py \
+python compute_truth_accessibility.py \
   --csv ../../stage1/datasets/development.csv ../../stage1/datasets/validation.csv \
   --cache-dir cif_cache --out truth_out --offline --workers 4
 ```

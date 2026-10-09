@@ -10,15 +10,15 @@ Typical use (login node has internet, compute nodes may not):
     pip install -e "stage2[biotite]"            # numpy, scipy, biotite
 
     # 1) download every structure once (4 polite parallel downloads)
-    python scripts/compute_truth_accessibility.py --csv development.csv validation.csv test_a.csv test_b.csv \\
+    python compute_truth_accessibility.py --csv development.csv validation.csv test_a.csv test_b.csv \\
         --cache-dir cif_cache --out truth_out --download-only --workers 4
 
     # 2) compute on the cluster, offline, resumable; split into 8 SLURM array tasks with --shard
-    python scripts/compute_truth_accessibility.py --csv ... --cache-dir cif_cache --out truth_out \\
+    python compute_truth_accessibility.py --csv ... --cache-dir cif_cache --out truth_out \\
         --offline --workers 16 --shard $SLURM_ARRAY_TASK_ID/8
 
     # 3) after all shards finished: assemble truth_out/summary.csv and truth_out/residues.csv.gz
-    python scripts/compute_truth_accessibility.py --csv ... --out truth_out --collect-only
+    python compute_truth_accessibility.py --csv ... --out truth_out --collect-only
 
 Outputs in --out:  <PDB>_<label_chain>.npz (arrays + JSON metadata), failures.csv, summary.csv, residues.csv.gz.
 Rerunning skips entries whose .npz exists (use --overwrite to recompute).

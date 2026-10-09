@@ -1,4 +1,4 @@
-"""scripts/prepare_openfold3_outputs.py on a synthetic OpenFold3-style output tree."""
+"""stage3/scoring/prepare_openfold3_outputs.py on a synthetic OpenFold3-style output tree."""
 import csv
 import importlib.util
 import json
@@ -16,7 +16,7 @@ from accessfold import AtomicStructure
 from accessfold.structures.mmcif import ONE_TO_THREE
 from accessfold.synthetic import write_chain_cif
 
-ROOT = Path(__file__).resolve().parents[1] / "scripts"
+ROOT = Path(__file__).resolve().parents[1]
 SEQ = "MKTAYIAKQRQISFVKSHFSRQ"
 
 

@@ -13,8 +13,8 @@ This script walks that tree and, for every model
 It writes ranking.csv (columns entry, candidate, score, ...) which score_candidates.py accepts as --ranking-csv with no
 extra options, prints a per-entry report, and prints the --candidates pattern to use. Nothing is scored here.
 
-    python scripts/prepare_openfold3_outputs.py --csv development.csv validation.csv --predictions of3_out --out ranking.csv
-    python scripts/score_candidates.py --csv development.csv validation.csv --truth-dir truth_out --cache-dir cif_cache \\
+    python stage3/scoring/prepare_openfold3_outputs.py --csv development.csv validation.csv --predictions of3_out --out ranking.csv
+    python stage3/scoring/score_candidates.py --csv development.csv validation.csv --truth-dir truth_out --cache-dir cif_cache \\
         --candidates "of3_out/{entry}/seed_*/*_model.cif*" --candidate-chain A --ranking-csv ranking.csv --out scores_out
 
 --chain: the chain id inside the OpenFold3 files (default A; `auto` takes the single polymer chain of each file). Whether

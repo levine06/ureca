@@ -129,14 +129,14 @@ def run(args):
 
 def test_cli_pipeline_end_to_end(structures, tmp_path):
     full, truth, d = structures
-    root = Path(__file__).resolve().parents[1] / "scripts"
+    root = ROOT
     cache = tmp_path / "cache"
     cache.mkdir()
     (cache / "TEST.cif.gz").write_bytes((d / "TEST.cif.gz").read_bytes())
     ds = tmp_path / "ds.csv"
     ds.write_text("pdb_id,chain_id,label_chain_id,sequence,length,resolution,resolved_fraction,training_or_test_split,release_date\n"
                   f"TEST,A,A,{SEQ},{len(SEQ)},1.5,0.9,development,2000-01-01\n")
-    r = run([root / "compute_truth_accessibility.py", "--csv", ds, "--cache-dir", cache, "--out", tmp_path / "truth", "--offline",
+    r = run([TRUTH_SCRIPTS / "compute_truth_accessibility.py", "--csv", ds, "--cache-dir", cache, "--out", tmp_path / "truth", "--offline",
              "--workers", 1, "--radii", *RADII])
     assert r.returncode == 0, r.stdout + r.stderr
     # candidates: the complete chain bent by growing amounts (written as .cif.gz), with a deliberately imperfect ranking
@@ -188,11 +188,15 @@ def test_cli_pipeline_end_to_end(structures, tmp_path):
 # correspondence, ranking, exit status / staleness, Windows csv limit
 import importlib.util  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1] / "scripts"
+ROOT = Path(__file__).resolve().parents[1]          # stage3/scoring
+TRUTH_SCRIPTS = Path(__file__).resolve().parents[2] / "truth_accessibility"
 
 
 def load_script(name):
-    spec = importlib.util.spec_from_file_location(name, ROOT / f"{name}.py")
+    path = ROOT / f"{name}.py"
+    if not path.exists():
+        path = TRUTH_SCRIPTS / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -209,7 +213,7 @@ def pipeline(structures, tmp_path_factory):
     ds = tmp / "ds.csv"
     ds.write_text("pdb_id,chain_id,label_chain_id,sequence,length,resolution,resolved_fraction,training_or_test_split,release_date\n"
                   f"TEST,A,A,{SEQ},{len(SEQ)},1.5,0.9,development,2000-01-01\n")
-    r = run([ROOT / "compute_truth_accessibility.py", "--csv", ds, "--cache-dir", cache, "--out", tmp / "truth", "--offline",
+    r = run([TRUTH_SCRIPTS / "compute_truth_accessibility.py", "--csv", ds, "--cache-dir", cache, "--out", tmp / "truth", "--offline",
              "--workers", 1, "--radii", *RADII])
     assert r.returncode == 0, r.stdout + r.stderr
     t_ca, t_has = ca_coordinates(load_chain_from_mmcif(cache / "TEST.cif.gz", "A", SEQ)[0])

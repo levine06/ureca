@@ -8,7 +8,7 @@ structure found for it, this computes
   * accessibility error: candidate accessibility (same package, same probe radii and n_points as the truth) against
     the saved truth profile, on exactly the truth-mask residues (see accessfold.scoring for the candidate environment).
 
-    python scripts/score_candidates.py --csv development.csv validation.csv \\
+    python stage3/scoring/score_candidates.py --csv development.csv validation.csv \\
         --truth-dir truth_out --cache-dir cif_cache \\
         --candidates "preds/{entry}/*.cif*" --candidate-chain A \\
         --ranking-csv ranking.csv --out scores_out --workers 8

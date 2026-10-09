@@ -1,6 +1,6 @@
 """Rebuild the bundled Gly-X-Gly maximum-ASA tables (Tien et al. 2013 method; see tripeptide.py).
 
-    python scripts/build_reference_tables.py [--radii 1.4 2.5 4.0 6.0] [--clash-scale 0.80] [--workers 2]
+    python build_reference_tables.py [--radii 1.4 2.5 4.0 6.0] [--clash-scale 0.80] [--workers 2]
                                              [--step 10] [--out src/accessfold/data/references] [--suffix ""]
 """
 import argparse
