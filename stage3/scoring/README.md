@@ -48,3 +48,16 @@ Outputs in `--out`: one `<entry>.npz` per protein, `candidate_scores.csv` (one r
 Add `--accessibility-only` for candidate accessibility and accessibility errors,
 or `--structure-only` for structural accuracy. Without either flag the combined
 workflow is unchanged. Use separate output folders for each mode.
+
+Accessibility modes always save all four per-residue profiles at every probe
+radius: `abs_<r>`, `rel_<r>`, `sc_abs_<r>`, `sc_rel_<r>` in each entry NPZ
+(candidate, residue). Absolute values are in A^2; relative values are unitless.
+`candidate_residues.csv.gz` contains the same profiles with entry, candidate,
+seed/sample, sequence position, residue name and validity-mask columns. Missing
+or excluded values are blank; glycine side-chain values are undefined, not zero.
+
+`candidate_scores.csv` includes MAE, RMSE, correlation error and valid-residue
+counts for each profile/radius. `--kind` selects only the headline comparison
+(`rel` by default), not which profiles are saved. Profiles use the matched
+experimental atom environment by default. Old relative-only outputs must be
+rerun: the updated scoring schema prevents their reuse.
