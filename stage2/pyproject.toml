@@ -12,15 +12,10 @@ dependencies = ["numpy>=1.22", "scipy>=1.8"]
 [project.optional-dependencies]
 biotite = ["biotite>=0.40"]
 # only needed to (re)build maximum-ASA reference tables; the SASA core needs just numpy + scipy
-crosscheck = ["freesasa"]  # optional Lee-Richards cross-check in the tests (install with --use-pep517)
 reference-builder = ["PeptideBuilder>=1.1", "biopython"]
-test = ["pytest", "biotite>=0.40", "PeptideBuilder>=1.1", "biopython"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 accessfold = ["data/references/*.json"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]

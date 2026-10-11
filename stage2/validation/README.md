@@ -29,18 +29,15 @@ Lysozyme 25, 108, 98 and crambin 16, 30 looked exposed but had limited water-pro
 
 The external Dunbrack library SHA256 is 71c16926a4140604e97f1c3c2625dc96a87a13c059ec565cbcacbed46265fe4a; it is not redistributed. Numerical inputs and exports are retained for reproduction. FreeSASA evidence is saved in freesasa-linux-results.xml, freesasa-linux-log.txt, and freesasa-linux-environment.txt.
 
-## Reproduce
+## Review the Evidence
 
-From stage2, in your chosen Python environment:
-
-```text
-python -m pip install -e ".[test]"
-python -m pytest validation/test_structures.py validation/test_step2.py -q -p no:cacheprovider
-```
-
-In PyMOL, File > Run Script > START_HERE.py regenerates standard measurements and inspection sessions. Restore inspection_controls.py after opening a session; use `inspect_residue 15` to highlight a residue. For reference and smaller-probe regeneration, run `python validation/prepare_step2.py`, then run STEP2_PYMOL.py in PyMOL. Paths are portable. The legacy START_HERE.pml requires this folder as working directory.
-
-On Ubuntu with python3-venv, python3-dev, and build-essential installed, run `bash validation/run_freesasa_linux.sh` for the four optional FreeSASA checks. It saves logs, environment versions, and XML results. Confirm four passed without skips.
+The validation tests passed before being archived outside the repository.
+The saved measurements and inspection evidence remain here.
+Open the saved `*_inspect.pse` sessions
+in PyMOL to review the structures; screenshots and their provenance are in
+`screenshots/`. General development tests and measurement-regeneration
+helpers have been archived outside the repository. The FreeSASA logs and XML
+are historical validation evidence, not a claim of a new run.
 
 ## Boundary
 
