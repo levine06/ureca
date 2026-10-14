@@ -16,6 +16,18 @@ The calculations live in the `accessfold` package in `truth_accessibility/src/ac
 |---|---|
 | `prepare_openfold3_outputs.py` | checks the OpenFold3 outputs against Stage 1 and writes `ranking.csv`; scores nothing |
 | `score_candidates.py` | computes the accessibility and structural errors for every candidate |
+| `submit_structure.pbs` | PBS job that runs `score_candidates.py --structure-only` on all candidates |
+| `structure_candidate_scores.csv`, `structure_entry_summary.csv` | structural-accuracy results for all 45 chains (see [Structural accuracy results](#structural-accuracy-results)) |
+
+## What the scripts do
+
+**`prepare_openfold3_outputs.py`** is a pre-flight check that scores nothing. It walks the OpenFold3 output folder, matches each `<query>_seed_<n>_sample_<i>_model.cif` to a Stage 1 entry, and validates it with the same loader the scorer uses (chain present, residue names equal to the Stage 1 sequence, numbering 1..N). It reads `sample_ranking_score` and the other confidence values from the sibling `_confidences_aggregated.json`, writes them to `ranking.csv`, and prints the `--candidates` pattern to use next. Higher ranking score is assumed to be better. It exits with status 1 if a model fails validation or a Stage 1 entry has no predictions.
+
+**`score_candidates.py`** scores every candidate of every entry against the experimental structure and the saved truth file. It does the orchestration only; the calculations are in `accessfold`.
+- Structural accuracy: Cα RMSD (Å, lower is better), lDDT-Cα and TM-score (0 to 1, higher is better), plus the RMSD between every pair of candidates. Residues are paired by sequence position, so no alignment is needed.
+- Accessibility: candidate accessibility and its error against the truth profile on the truth-mask residues (MAE, RMSE and correlation error, per probe radius and averaged over radii).
+- Mode flags, mutually exclusive: `--structure-only`, `--accessibility-only`, or neither for both.
+- Optionally joins the model's own ranking (`--ranking-csv`) to fill the top-ranked columns.
 
 ## Accessibility Results
 
@@ -75,3 +87,28 @@ counts for each profile/radius. `--kind` selects only the headline comparison
 (`rel` by default), not which profiles are saved. Profiles use the matched
 experimental atom environment by default. Old relative-only outputs must be
 rerun: the updated scoring schema prevents their reuse.
+
+## Structural accuracy job
+
+`submit_structure.pbs` submits the structural-accuracy run to the cluster. It activates the `accessfold` conda environment and runs `score_candidates.py --structure-only` over the development and validation entries, with the committed truth files, the `truth_accessibility/cif_cache/` structures and the candidates in `candidate_generation/candidates/`. The job requests 8 CPUs, 32 GB and 12 h (placeholders; adjust to your allocation) and writes to `structure_out/`; its log goes to `logs/`. Both folders are git-ignored.
+
+```bash
+mkdir -p stage3/scoring/logs
+qsub stage3/scoring/submit_structure.pbs
+```
+
+The script scores with `--candidate-chain A`. Two entries were generated under their author chain ids instead, so they fail in the job and are scored separately by pointing at their actual folder and chain:
+
+| Entry | Candidate folder | `--candidate-chain` |
+|---|---|---|
+| `2H36_A` | `2H36_X` | `X` |
+| `6F4C_A` | `6F4C_B` | `B` |
+
+Run each with `--only <entry>` and its own `--candidates` pattern, then rebuild the tables for all entries with `--collect-only`.
+
+## Structural accuracy results
+
+The tables are copied from `structure_out/` and renamed with a `structure_` prefix so they cannot be confused with the accessibility tables, which have the same names.
+
+- `structure_candidate_scores.csv`: one row per candidate (45 entries × 25 = 1,125 rows). Columns: `entry`, `candidate`, `rmsd_ca`, `lddt_ca`, `tm_score`, `n_reference` and `n_common` (residues compared), `coverage_ca` and `coverage_mask`, and `rank_score` and `rank` (the model's own ranking, empty unless `--ranking-csv` is given).
+- `structure_entry_summary.csv`: one row per entry (45 rows), pooling its 25 candidates: RMSD minimum, median, maximum and spread; the median and maximum RMSD between candidates (`pair_rmsd_*`); and the number of candidates within 1, 2 and 4 Å (`n_within_*A`). The top-ranked columns (`rmsd_top1`, `rmsd_best_top{1,5,20}`) need `--ranking-csv`, and `rmsd_acc_selected` needs the accessibility errors, so they are empty here.
