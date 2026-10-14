@@ -17,6 +17,20 @@ The calculations live in the `accessfold` package in `truth_accessibility/src/ac
 | `prepare_openfold3_outputs.py` | checks the OpenFold3 outputs against Stage 1 and writes `ranking.csv`; scores nothing |
 | `score_candidates.py` | computes the accessibility and structural errors for every candidate |
 
+## Accessibility Results
+
+`results_accessibility/` contains results for 45 development/validation proteins
+and 1,125 candidates:
+
+| File | Deliverable |
+|---|---|
+| `accessibility_candidate_scores.csv` | Per-candidate accessibility errors: MAE, RMSE and correlation error for all four profiles at each probe radius. `ac_error` summarizes relative whole-residue MAE across radii; lower is better. |
+| `accessibility_candidate_residues.csv.gz` | Per-residue absolute, relative, absolute side-chain and relative side-chain accessibility at 1.4, 2.5, 4.0 and 6.0 Angstrom, with candidate identifiers and masks. |
+
+These are accessibility results, not structural accuracy measurements.
+Per-protein NPZ files and entry summaries are generated locally but are not
+included in this results folder.
+
 ## Workflow
 
 Run from the repository root, in an environment where `accessfold` is installed (`pip install -e "stage3/truth_accessibility[biotite]"`). The truth files come from `truth_accessibility/compute_truth_accessibility.py`.
