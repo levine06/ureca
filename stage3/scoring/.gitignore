@@ -1,2 +1,4 @@
 logs/
 structure_out/
+!results/
+results/*.csv.gz
