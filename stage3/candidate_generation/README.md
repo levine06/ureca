@@ -9,7 +9,9 @@ Files in this folder:
 
 Candidates, the manifest, scratch query files and logs are written to `candidates/`, `candidates_manifest.csv`, `work/` and `logs/` in this folder. Only the manifest is tracked by Git.
 
-`generate_candidates.py` generates a fixed ensemble of OpenFold3 candidate structures for each protein in the development and validation sets.
+`generate_candidates.py` generates a fixed ensemble of OpenFold3 candidate structures for each protein in the development and validation sets, and optionally in the Stage 1 `test_a` and `test_b` sets.
+
+Available splits (`--splits`): `development`, `validation`, `test_a`, `test_b`. The default is `development validation`; the test splits are only run when requested explicitly.
 
 For each protein, OpenFold3 is run using:
 
@@ -30,7 +32,7 @@ The candidates are saved under:
 candidates/<split>/<PDB>_<CHAIN>/seed_<SEED>/
 ```
 
-For example:
+where `<split>` is `development`, `validation`, `test_a` or `test_b`. For example:
 
 ```text
 candidates/development/1L66_A/seed_42/
@@ -73,10 +75,22 @@ Submit all shards:
 qsub stage3/candidate_generation/submit_shards.pbs
 ```
 
-Shard jobs do not write the manifest. Once every array element has finished, build it once:
+Submit the test sets (`test_a` and `test_b`) by passing `--splits` through `EXTRA_ARGS`:
 
 ```bash
-python stage3/candidate_generation/generate_candidates.py --manifest-only
+qsub -v EXTRA_ARGS="--splits test_a test_b" stage3/candidate_generation/submit_shards.pbs
+```
+
+To resubmit a single failed array element (e.g. element 3):
+
+```bash
+qsub -J 3-3 -v EXTRA_ARGS="--splits test_a test_b" stage3/candidate_generation/submit_shards.pbs
+```
+
+Shard jobs do not write the manifest. Once every array element has finished, build it once. The manifest is rebuilt from scratch by scanning `candidates/`, so list every split you want in it, otherwise the rows of the omitted splits are dropped:
+
+```bash
+python stage3/candidate_generation/generate_candidates.py --manifest-only --splits development validation test_a test_b
 ```
 
 Re-running is safe: finished candidates are skipped, so a failed shard can simply be resubmitted.
@@ -101,7 +115,7 @@ The manifest contains one row per candidate:
 
 | Column | Meaning |
 |---|---|
-| `split` | `development` or `validation` |
+| `split` | `development`, `validation`, `test_a` or `test_b` |
 | `query_name` | protein name, `<pdb_id>_<chain_id>` |
 | `pdb_id`, `chain_id`, `length` | from the Stage 1 CSV |
 | `seed`, `sample` | OpenFold3 seed and diffusion-sample index (1-based) |
@@ -118,7 +132,7 @@ The candidate structures themselves are not committed to Git because of their si
 ## Workflow
 
 ```text
-Stage 1 development + validation proteins
+Stage 1 development + validation (+ test_a / test_b) proteins
                 |
                 v
       generate_candidates.py
@@ -140,3 +154,4 @@ These fixed candidate ensembles are then used for the accessibility-versus-struc
 
 - 45 proteins (30 development, 15 validation), 25 candidates each: 1125 candidates in the manifest.
 - All candidates have `has_clash = 0`.
+- `test_a` and `test_b` (20 proteins each) are supported but not yet generated; once they are, the manifest will contain 2125 rows.
