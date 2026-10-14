@@ -17,7 +17,7 @@ The calculations live in the `accessfold` package in `truth_accessibility/src/ac
 | `prepare_openfold3_outputs.py` | checks the OpenFold3 outputs against Stage 1 and writes `ranking.csv`; scores nothing |
 | `score_candidates.py` | computes the accessibility and structural errors for every candidate |
 | `submit_structure.pbs` | PBS job that runs `score_candidates.py --structure-only` on all candidates |
-| `structure_candidate_scores.csv`, `structure_entry_summary.csv` | structural-accuracy results for all 45 chains (see [Structural accuracy results](#structural-accuracy-results)) |
+| `results/` | committed result tables: accessibility (see [Accessibility results](#accessibility-results)) and structural accuracy (see [Structural accuracy results](#structural-accuracy-results)) |
 
 ## What the scripts do
 
@@ -29,19 +29,18 @@ The calculations live in the `accessfold` package in `truth_accessibility/src/ac
 - Mode flags, mutually exclusive: `--structure-only`, `--accessibility-only`, or neither for both.
 - Optionally joins the model's own ranking (`--ranking-csv`) to fill the top-ranked columns.
 
-## Accessibility Results
+## Accessibility results
 
-`results_accessibility/` contains results for 45 development/validation proteins
+`results/` contains the accessibility results for 45 development/validation proteins
 and 1,125 candidates:
 
 | File | Deliverable |
 |---|---|
 | `accessibility_candidate_scores.csv` | Per-candidate accessibility errors: MAE, RMSE and correlation error for all four profiles at each probe radius. `ac_error` summarizes relative whole-residue MAE across radii; lower is better. |
-| `accessibility_candidate_residues.csv.gz` | Per-residue absolute, relative, absolute side-chain and relative side-chain accessibility at 1.4, 2.5, 4.0 and 6.0 Angstrom, with candidate identifiers and masks. |
 
 These are accessibility results, not structural accuracy measurements.
 Per-protein NPZ files and entry summaries are generated locally but are not
-included in this results folder.
+included in the `results/` folder.
 
 ## Workflow
 
@@ -78,9 +77,7 @@ workflow is unchanged. Use separate output folders for each mode.
 Accessibility modes always save all four per-residue profiles at every probe
 radius: `abs_<r>`, `rel_<r>`, `sc_abs_<r>`, `sc_rel_<r>` in each entry NPZ
 (candidate, residue). Absolute values are in A^2; relative values are unitless.
-`candidate_residues.csv.gz` contains the same profiles with entry, candidate,
-seed/sample, sequence position, residue name and validity-mask columns. Missing
-or excluded values are blank; glycine side-chain values are undefined, not zero.
+Missing or excluded values are blank; glycine side-chain values are undefined, not zero.
 
 `candidate_scores.csv` includes MAE, RMSE, correlation error and valid-residue
 counts for each profile/radius. `--kind` selects only the headline comparison
@@ -108,7 +105,12 @@ Run each with `--only <entry>` and its own `--candidates` pattern, then rebuild 
 
 ## Structural accuracy results
 
-The tables are copied from `structure_out/` and renamed with a `structure_` prefix so they cannot be confused with the accessibility tables, which have the same names.
+The two tables are in `results/`. They start from the `candidate_scores.csv` and `entry_summary.csv` that the job writes to `structure_out/` (git-ignored), renamed with a `structure_` prefix so they cannot be confused with the accessibility tables, which have the same names. Re-running the job does not update the copies in `results/`.
 
-- `structure_candidate_scores.csv`: one row per candidate (45 entries × 25 = 1,125 rows). Columns: `entry`, `candidate`, `rmsd_ca`, `lddt_ca`, `tm_score`, `n_reference` and `n_common` (residues compared), `coverage_ca` and `coverage_mask`, and `rank_score` and `rank` (the model's own ranking, empty unless `--ranking-csv` is given).
-- `structure_entry_summary.csv`: one row per entry (45 rows), pooling its 25 candidates: RMSD minimum, median, maximum and spread; the median and maximum RMSD between candidates (`pair_rmsd_*`); and the number of candidates within 1, 2 and 4 Å (`n_within_*A`). The top-ranked columns (`rmsd_top1`, `rmsd_best_top{1,5,20}`) need `--ranking-csv`, and `rmsd_acc_selected` needs the accessibility errors, so they are empty here.
+- `structure_candidate_scores.csv`: one row per candidate (45 entries × 25 = 1,125 rows). Columns: `entry`, `candidate`, `rmsd_ca`, `lddt_ca`, `tm_score`, `n_reference` and `n_common` (residues compared), `coverage_ca` and `coverage_mask`, and `rank_score` and `rank` (the model's own ranking from `sample_ranking_score` in `candidate_generation/candidates_manifest.csv`; rank 1 is the highest score).
+- `structure_entry_summary.csv`: one row per entry (45 rows), pooling its 25 candidates:
+  - RMSD minimum, median, maximum and spread; the median and maximum RMSD between candidates (`pair_rmsd_*`); and the number of candidates within 1, 2 and 4 Å (`n_within_*A`).
+  - `rmsd_top1`, `rmsd_best_top{1,5,20}` and `top1_minus_best`: the RMSD of the model's top-ranked candidate, of the best candidate among its top 1, 5 and 20, and the gap between the top-ranked and the best.
+  - `rmsd_acc_selected`: the RMSD of the candidate with the lowest accessibility error (`ac_error` in `accessibility_candidate_scores.csv`).
+  - `rho_ac_vs_{rmsd,lddt,tm}` and `rho_accorr_vs_{rmsd,lddt,tm}`: the Spearman correlation, over the entry's 25 candidates, between the accessibility error and the structural error (RMSD, 1 − lDDT, 1 − TM-score). `ac` uses `ac_error` (mean absolute error) and `accorr` uses `ac_corr_error`. A positive value means candidates that match the experimental accessibility better also have a better structure.
+  - `topN_unavailable_reason` is empty when the ranking is complete for the entry.
