@@ -56,7 +56,9 @@ GEN_DIR = URECA_ROOT / "stage3" / "candidate_generation"
 DEFAULT_RUNNER_YAML = URECA_ROOT / "cpu_inference.yml"
 DEFAULT_OPENFOLD_REPO = URECA_ROOT / "openfold-3"
 
-SPLIT_CSVS = {"development": "development.csv", "validation": "validation.csv"}
+SPLIT_CSVS = {"development": "development.csv", "validation": "validation.csv",
+              "test_a": "test_a.csv", "test_b": "test_b.csv"}
+DEFAULT_SPLITS = ["development", "validation"]
 DEFAULT_SEEDS = [42, 123, 7, 2024, 31337]
 
 MODEL_RE = re.compile(r"^(?P<name>.+)_seed_(?P<seed>\d+)_sample_(?P<sample>\d+)_model\.cif$")
@@ -220,7 +222,7 @@ def build_manifest(entries_all):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--splits", nargs="+", default=list(SPLIT_CSVS), choices=list(SPLIT_CSVS))
+    p.add_argument("--splits", nargs="+", default=DEFAULT_SPLITS, choices=list(SPLIT_CSVS))
     p.add_argument("--only", nargs="+", help="restrict to these entries, e.g. 1L66_A")
     p.add_argument("--shard", type=parse_shard, help="process shard I of N (I/N); one PBS array element per shard")
     p.add_argument("--threads", type=int,
