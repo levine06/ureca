@@ -1,0 +1,30 @@
+#!/bin/bash
+# Stage 3: candidate structural accuracy (C-alpha RMSD, lDDT-Ca, TM-score) for all candidates.
+#
+#   mkdir -p stage3/scoring/logs        # must exist before qsub
+#   qsub stage3/scoring/submit_structure.pbs
+#
+# Output: stage3/scoring/structure_out/ (candidate_scores.csv, entry_summary.csv, one .npz per entry, failures.csv).
+# ncpus / mem / walltime below are placeholders: adjust to your allocation.
+#PBS -N stage3_structure
+#PBS -P as_sbs_richard.she
+#PBS -q qintel_wfly
+#PBS -l select=1:ncpus=8:mem=32gb
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /home/levi0006/ureca/stage3/scoring/logs/
+
+cd /home/levi0006/ureca || exit 1
+
+source /usr/local/anaconda2025/etc/profile.d/conda.sh
+conda activate accessfold
+
+# Use exactly the CPUs this job was given.
+python stage3/scoring/score_candidates.py \
+    --csv stage1/datasets/development.csv stage1/datasets/validation.csv \
+    --truth-dir stage3/truth_accessibility/results \
+    --cache-dir stage3/truth_accessibility/cif_cache \
+    --candidates "stage3/candidate_generation/candidates/*/{entry}/seed_*/*_model.cif*" \
+    --candidate-chain A \
+    --structure-only \
+    --out stage3/scoring/structure_out --workers ${NCPUS:-8}
