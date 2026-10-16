@@ -152,6 +152,9 @@ These fixed candidate ensembles are then used for the accessibility-versus-struc
 
 ## Current status
 
-- 45 proteins (30 development, 15 validation), 25 candidates each: 1125 candidates in the manifest.
+- 85 proteins, 25 candidates each: 2125 candidates in the manifest.
+  - `development`: 30 proteins (750 candidates)
+  - `validation`: 15 proteins (375 candidates)
+  - `test_a`: 20 proteins (500 candidates)
+  - `test_b`: 20 proteins (500 candidates)
 - All candidates have `has_clash = 0`.
-- `test_a` and `test_b` (20 proteins each) are supported but not yet generated; once they are, the manifest will contain 2125 rows.
