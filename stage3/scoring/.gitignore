@@ -1,4 +1,4 @@
 logs/
-structure_out/
+runs/
 !results/
-results/*.csv.gz
+results/**/*.csv.gz

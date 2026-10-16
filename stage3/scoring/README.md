@@ -17,7 +17,11 @@ The calculations live in the `accessfold` package in `truth_accessibility/src/ac
 | `prepare_openfold3_outputs.py` | checks the OpenFold3 outputs against Stage 1 and writes `ranking.csv`; scores nothing |
 | `score_candidates.py` | computes the accessibility and structural errors for every candidate |
 | `submit_structure.pbs` | PBS job that runs `score_candidates.py --structure-only` on all candidates |
-| `results/` | committed result tables: accessibility (see [Accessibility results](#accessibility-results)) and structural accuracy (see [Structural accuracy results](#structural-accuracy-results)) |
+| `results/development_validation/` | committed result tables for the 45 development and validation proteins: accessibility (see [Accessibility results](#accessibility-results)) and structural accuracy (see [Structural accuracy results](#structural-accuracy-results)) |
+| `results/test/` | committed result tables for the 40 test proteins (see [Test set results](#test-set-results)) |
+| `runs/` | working output of each scoring run (per-protein `.npz` files and the tables the script writes); git-ignored |
+| `logs/` | PBS job logs; git-ignored |
+| `plots_accessibility_vs_accuracy/` | the plotting script and its figures |
 
 ## What the scripts do
 
@@ -31,7 +35,7 @@ The calculations live in the `accessfold` package in `truth_accessibility/src/ac
 
 ## Accessibility results
 
-`results/` contains the accessibility results for 45 development/validation proteins
+`results/development_validation/` contains the accessibility results for 45 development/validation proteins
 and 1,125 candidates:
 
 | File | Deliverable |
@@ -40,7 +44,7 @@ and 1,125 candidates:
 
 These are accessibility results, not structural accuracy measurements.
 Per-protein NPZ files and entry summaries are generated locally but are not
-included in the `results/` folder.
+included in the `results/` folders.
 
 ## Workflow
 
@@ -87,7 +91,7 @@ rerun: the updated scoring schema prevents their reuse.
 
 ## Structural accuracy job
 
-`submit_structure.pbs` submits the structural-accuracy run to the cluster. It activates the `accessfold` conda environment and runs `score_candidates.py --structure-only` over the development and validation entries, with the committed truth files, the `truth_accessibility/cif_cache/` structures and the candidates in `candidate_generation/candidates/`. The job requests 8 CPUs, 32 GB and 12 h (placeholders; adjust to your allocation) and writes to `structure_out/`; its log goes to `logs/`. Both folders are git-ignored.
+`submit_structure.pbs` submits the structural-accuracy run to the cluster. It activates the `accessfold` conda environment and runs `score_candidates.py --structure-only` over the development and validation entries, with the committed truth files, the `truth_accessibility/cif_cache/` structures and the candidates in `candidate_generation/candidates/`. The job requests 8 CPUs, 32 GB and 12 h (placeholders; adjust to your allocation) and writes to `runs/dev_val_structure/`; its log goes to `logs/`. Both folders are git-ignored.
 
 ```bash
 mkdir -p stage3/scoring/logs
@@ -105,7 +109,7 @@ Run each with `--only <entry>` and its own `--candidates` pattern, then rebuild 
 
 ## Structural accuracy results
 
-The two tables are in `results/`. They start from the `candidate_scores.csv` and `entry_summary.csv` that the job writes to `structure_out/` (git-ignored), renamed with a `structure_` prefix so they cannot be confused with the accessibility tables, which have the same names. Re-running the job does not update the copies in `results/`.
+The two tables are in `results/development_validation/`. They start from the `candidate_scores.csv` and `entry_summary.csv` that the job writes to `runs/dev_val_structure/` (git-ignored), renamed with a `structure_` prefix so they cannot be confused with the accessibility table, which has the same name. Re-running the job does not update the copies in `results/`.
 
 - `structure_candidate_scores.csv`: one row per candidate (45 entries × 25 = 1,125 rows). Columns: `entry`, `candidate`, `rmsd_ca`, `lddt_ca`, `tm_score`, `n_reference` and `n_common` (residues compared), `coverage_ca` and `coverage_mask`, and `rank_score` and `rank` (the model's own ranking from `sample_ranking_score` in `candidate_generation/candidates_manifest.csv`; rank 1 is the highest score).
 - `structure_entry_summary.csv`: one row per entry (45 rows), pooling its 25 candidates:
@@ -114,3 +118,12 @@ The two tables are in `results/`. They start from the `candidate_scores.csv` and
   - `rmsd_acc_selected`: the RMSD of the candidate with the lowest accessibility error (`ac_error` in `accessibility_candidate_scores.csv`).
   - `rho_ac_vs_{rmsd,lddt,tm}` and `rho_accorr_vs_{rmsd,lddt,tm}`: the Spearman correlation, over the entry's 25 candidates, between the accessibility error and the structural error (RMSD, 1 − lDDT, 1 − TM-score). `ac` uses `ac_error` (mean absolute error) and `accorr` uses `ac_corr_error`. A positive value means candidates that match the experimental accessibility better also have a better structure.
   - `topN_unavailable_reason` is empty when the ranking is complete for the entry.
+
+## Test set results
+
+`results/test/` has the results for the 40 test proteins (20 in `test_a`, 20 in `test_b`; 1,000 candidates), produced by one combined run of `score_candidates.py` (structure and accessibility together) into `runs/test/`. It holds a copy of the two tables from that run:
+
+- `candidate_scores.csv`: one row per candidate, with the structural metrics, the accessibility errors and the model's ranking.
+- `entry_summary.csv`: one row per protein, with the RMSD summaries, `rmsd_acc_selected` and the `rho_*` correlations.
+
+All test proteins use candidate chain `A` except `8EXF_B`, which must be scored with `--candidate-chain B`. The column definitions are the same as for the development and validation tables above. These files come from a single combined run, so the structural and accessibility columns are in the same file.

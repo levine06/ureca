@@ -4,7 +4,7 @@
 #   mkdir -p stage3/scoring/logs        # must exist before qsub
 #   qsub stage3/scoring/submit_structure.pbs
 #
-# Output: stage3/scoring/structure_out/ (candidate_scores.csv, entry_summary.csv, one .npz per entry, failures.csv).
+# Output: stage3/scoring/runs/dev_val_structure/ (candidate_scores.csv, entry_summary.csv, one .npz per entry, failures.csv).
 # ncpus / mem / walltime below are placeholders: adjust to your allocation.
 #PBS -N stage3_structure
 #PBS -P as_sbs_richard.she
@@ -27,4 +27,4 @@ python stage3/scoring/score_candidates.py \
     --candidates "stage3/candidate_generation/candidates/*/{entry}/seed_*/*_model.cif*" \
     --candidate-chain A \
     --structure-only \
-    --out stage3/scoring/structure_out --workers ${NCPUS:-8}
+    --out stage3/scoring/runs/dev_val_structure --workers ${NCPUS:-8}
