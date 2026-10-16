@@ -55,7 +55,17 @@ Experimental outputs are in [results](results/README.md): all 30 development and
 15 validation chains pass 90% usable-coordinate coverage. 2ID7 has CYQ at position
 56 and five shadow exclusions; 3RF2 has 165 coordinate-record positions but 160
 usable positions. The modifications in 2BE4, 2O6W, 4DXZ and 4H4J are accepted
-selenomethionine. Test A and Test B have not been run.
+selenomethionine.
+
+The 40 Test A and Test B chains (20 each) are in `results_test/` (`<PDB>_<chain>.npz`,
+`summary.csv`, `residues.csv.gz`), computed with the same settings (radii 1.4, 2.5,
+4.0 and 6.0 A, 1,000 points, gap flank 0, shadow threshold 5 A^2). 39 of 40 pass 90%
+usable-coordinate coverage; 8EXF_B has 167 of 217 usable positions (77%), with a
+longest internal gap of 19 residues. 7VKC has SEP at position 59 and four shadow
+exclusions, 8WZY has KCX at position 150 and one, and 9YP0 has OCS at position 100.
+7T1M, 7TFQ, 7TLV, 7VKC, 7XCD, 7XWY and 7Y19 contain accepted selenomethionine.
+These chains are computed like the development and validation chains, with
+`--csv ../../stage1/datasets/test_a.csv ../../stage1/datasets/test_b.csv --out results_test`.
 
 Scoring writes `candidate_scores.csv`, `entry_summary.csv` and per-entry NPZs.
 NPZs store profiles as `c[candidate,residue,radius]`, experimental values as
