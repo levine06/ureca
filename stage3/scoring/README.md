@@ -20,7 +20,7 @@ The calculations live in the `accessfold` package in `truth_accessibility/src/ac
 | `results/test/` | committed result tables for the 40 test proteins (see [Results](#results)) |
 | `runs/` | working output of each scoring run (per-protein `.npz` files and the tables the script writes); git-ignored |
 | `logs/` | PBS job logs; git-ignored |
-| `plots_accessibility_vs_accuracy/` | the plotting script and its figures |
+| [`../plots/`](../plots/README.md) | combined accessibility-versus-accuracy figures, controls figures and plotting scripts |
 
 ## What the scripts do
 

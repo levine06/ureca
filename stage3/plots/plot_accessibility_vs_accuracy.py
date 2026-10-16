@@ -23,7 +23,7 @@ Figures written to --out (PNG + SVG each, plus tables):
   dropped_rows.csv, plot_settings.json        rows that were NOT plotted (missing values) and the inputs/settings/matched counts (traceability)
 Main summary = ALL proteins with a defined rho (>= 4 candidates, neither axis constant): median of the per-protein rho with
 a percentile bootstrap over proteins (the independent unit), overall and per split, plus the count with rho > 0.
-Supplementary summary = the subset whose "RMSD range" is >= --subset-rmsd-range (default 1 A), shown as ringed dots in B, a
+Optional supplementary summary (disabled by default) = the subset whose "RMSD range" is >= --subset-rmsd-range, shown as ringed dots in B, a
 dashed line in A and a second block in the summary box. RMSD range = highest minus lowest RMSD-to-the-experimental-structure
 among the protein's candidates. It limits how much selection could gain, but it is NOT the diversity of the candidates
 among themselves (that needs pairwise candidate RMSD, the `pair_rmsd` array of the score_candidates.py .npz files), and a
@@ -49,10 +49,12 @@ from scipy.stats import rankdata
 # Reference palette of the data-viz skill (categorical slots 1-2 validated for all pairs, both modes; contrast >= 3:1).
 THEMES = {
     "light": dict(surface="#fcfcfb", text="#0b0b0b", text2="#52514e", muted="#8a8984", grid="#e6e5e1",
-                  dev="#2a78d6", val="#eb6834", excl="#b5b4ae"),
+                  dev="#2a78d6", val="#eb6834", test_a="#16865c", test_b="#a345a0", excl="#b5b4ae"),
     "dark": dict(surface="#1a1a19", text="#f0efec", text2="#c3c2b7", muted="#8c8b84", grid="#2e2e2c",
-                 dev="#3987e5", val="#d95926", excl="#5a5955"),
+                 dev="#3987e5", val="#d95926", test_a="#51c993", test_b="#d78bd0", excl="#5a5955"),
 }
+SPLIT_COLOURS = {"development": "dev", "validation": "val", "test_a": "test_a", "test_b": "test_b"}
+SPLIT_LABELS = {"development": "Development", "validation": "Validation", "test_a": "Test A", "test_b": "Test B"}
 Y_CHOICES = {"rmsd_ca": ("Cα RMSD to the experimental structure (Å)", lambda v: v),
              "lddt_ca": ("1 − lDDT-Cα (observed)", lambda v: 1.0 - v),
              "tm_score": ("1 − TM-score", lambda v: 1.0 - v)}
@@ -63,9 +65,23 @@ SHORT_X = {"ac_error": "accessibility error (MAE)", "ac_corr_error": "accessibil
 
 
 # ------------------------------------------------------------------------------------------------------- data
-def read_rows(path):
-    with open(path, newline="") as fh:
-        return list(csv.DictReader(fh))
+def input_paths(paths):
+    return [paths] if isinstance(paths, (str, Path)) else list(paths)
+
+
+def read_rows(paths):
+    rows = []
+    for path in input_paths(paths):
+        with open(path, newline="", encoding="utf-8-sig") as fh:
+            rows.extend(csv.DictReader(fh))
+    return rows
+
+
+def candidate_key(row):
+    candidate = row["candidate"].strip().replace("\\", "/")
+    while candidate.startswith("./"):
+        candidate = candidate[2:]
+    return row["entry"].strip(), candidate
 
 
 def num(v):
@@ -80,9 +96,9 @@ def load(acc_csv, struct_csv, xcol, ycol, strict=False):
     kept, and they are reported (report["dropped_nonfinite"], printed by main and written to dropped_rows.csv), never silent."""
     acc, st = read_rows(acc_csv), read_rows(struct_csv)
     for name, rows, col in (("accessibility", acc, xcol), ("structure", st, ycol)):
-        if not rows or col not in rows[0]:
+        if not rows or any(col not in row or "entry" not in row or "candidate" not in row for row in rows):
             sys.exit(f"{name} table has no column {col!r}; columns: {list(rows[0])[:12] if rows else 'none (empty table)'} ...")
-    key = lambda r: (r["entry"], r["candidate"])
+    key = candidate_key
     sidx = {key(r): r for r in st}
     if len(sidx) != len(st) or len({key(r) for r in acc}) != len(acc):
         sys.exit("(entry, candidate) is not unique in one of the tables; the two tables must come from the same score_candidates.py run")
@@ -95,7 +111,10 @@ def load(acc_csv, struct_csv, xcol, ycol, strict=False):
             continue
         x, y = num(r[xcol]), transform(num(s[ycol]))
         if np.isfinite(x) and np.isfinite(y):
-            split = r["candidate"].replace("\\", "/").split("/")[0] if "/" in r["candidate"].replace("\\", "/") else ""
+            path_splits = {p for p in key(r)[1].split("/") if p in SPLIT_COLOURS}
+            if len(path_splits) > 1:
+                sys.exit(f"ambiguous dataset labels in candidate {r['candidate']!r}")
+            split = next(iter(path_splits), r.get("split", "").strip())
             out.append({"entry": r["entry"], "candidate": r["candidate"], "split": split, "x": x, "y": y,
                         "rmsd_ca": num(s["rmsd_ca"]) if "rmsd_ca" in s else float("nan")})
         else:
@@ -157,11 +176,13 @@ def group(rows, subset_min):
         for r, a, b in zip(rs, px, py):
             r["x_rank"], r["y_rank"] = float(a), float(b)
         split = rs[0]["split"]
+        if any(r["split"] != split for r in rs):
+            sys.exit(f"protein {name} occurs in multiple dataset splits")
         stats.append({"entry": name, "split": split, "n_candidates": len(rs), "rmsd_range_A": spread,
                       "x_min": float(x.min()), "x_max": float(x.max()), "y_min": float(y.min()), "y_max": float(y.max()),
                       "spearman_rho": spearman(x, y),
                       "in_summary": bool(len(rs) >= 4 and np.isfinite(spearman(x, y))),
-                      "in_subset": bool(len(rs) >= 4 and spread >= subset_min and np.isfinite(spearman(x, y)))})
+                      "in_subset": bool(subset_min is not None and len(rs) >= 4 and spread >= subset_min and np.isfinite(spearman(x, y)))})
     return by, stats
 
 
@@ -182,7 +203,7 @@ def setup(theme):
 
 
 def colour_of(split, c):
-    return c["val"] if split == "validation" else c["dev"]
+    return c[SPLIT_COLOURS[split]] if split in SPLIT_COLOURS else c["muted"]
 
 
 def summarise(stats, a, splits):
@@ -206,7 +227,8 @@ def figure1(rows, stats, a, plt, c):
     in_sum = {s["entry"] for s in stats if s["in_summary"]}
     in_sub = {s["entry"] for s in stats if s["in_subset"]}
     ylab = Y_CHOICES[a.y][0]
-    splits = [s for s in ("development", "validation") if any(r["split"] == s for r in rows)] or [""]
+    found = {r["split"] for r in rows}
+    splits = [s for s in SPLIT_COLOURS if s in found] + sorted(found - set(SPLIT_COLOURS))
     summary = summarise(stats, a, splits)
     fig = plt.figure(figsize=(14.5, max(9.0, 0.24 * len(stats) + 3.2)))
     gs = fig.add_gridspec(1, 2, width_ratios=[1.15, 1], wspace=0.30, left=0.06, right=0.98, top=0.895, bottom=0.08)
@@ -217,7 +239,7 @@ def figure1(rows, stats, a, plt, c):
         pts = [r for r in rows if r["split"] == sp and r["entry"] in in_sum]
         ax.scatter([r["x_rank"] for r in pts], [r["y_rank"] for r in pts], s=20, color=colour_of(sp, c), alpha=0.5,
                    linewidths=0.4, edgecolors=c["surface"], zorder=3,
-                   label=f"{sp or 'all'}: {len({r['entry'] for r in pts})} proteins, {len(pts)} candidates")
+                   label=f"{SPLIT_LABELS.get(sp, sp or 'Unspecified')}: {len({r['entry'] for r in pts})} proteins, {len(pts)} candidates")
     pooled = [r for r in rows if r["entry"] in in_sum]
     if len(pooled) > 20:
         cx, cy = binned_mean(pooled)
@@ -271,10 +293,11 @@ def figure1(rows, stats, a, plt, c):
     for sp in splits:
         if sp:
             m = summary[("main", sp)]
-            lines.append(f"  {sp} (n = {m[0]}): {m[1]:+.2f}  [{m[2]:+.2f}, {m[3]:+.2f}]")
+            lines.append(f"  {SPLIT_LABELS.get(sp, sp)} (n = {m[0]}): {m[1]:+.2f}  [{m[2]:+.2f}, {m[3]:+.2f}]")
     sn, smed, slo, shi, snpos = summary[("subset", "all")]
-    lines += ["", f"Supplementary: RMSD range \u2265 {a.subset_rmsd_range:g} \u00c5 (ringed dots), n = {sn}",
-              f"  median \u03c1 {smed:+.2f}  [{slo:+.2f}, {shi:+.2f}];  \u03c1 > 0 in {snpos} of {sn}"]
+    if a.subset_rmsd_range is not None:
+        lines += ["", f"Supplementary: RMSD range \u2265 {a.subset_rmsd_range:g} \u00c5 (ringed dots), n = {sn}",
+                  f"  median \u03c1 {smed:+.2f}  [{slo:+.2f}, {shi:+.2f}];  \u03c1 > 0 in {snpos} of {sn}"]
     fig.text(0.07, 0.10, "Summary (median of the per-protein \u03c1, bootstrap over proteins)\n" + "\n".join(lines), fontsize=9, color=c["text"],
              va="bottom", ha="left", linespacing=1.45, bbox=dict(boxstyle="round,pad=0.6", fc=c["surface"], ec=c["grid"], lw=0.8))
 
@@ -282,7 +305,7 @@ def figure1(rows, stats, a, plt, c):
                  x=0.06, y=0.985, ha="left", fontsize=14, fontweight="bold", color=c["text"])
     fig.text(0.06, 0.945, f"{len(rows)} candidates, {len(stats)} proteins.  x = {SHORT_X[a.x]} against the reference accessibility computed from the "
              f"experimental structure (not a measured signal).  y = {ylab}.\n"
-             "Panel A shows within-protein RANKS, not raw accessibility error or RMSD; its solid line covers all proteins, its dashed line only the RMSD-range subset.\n"
+             "Panel A shows within-protein RANKS, not raw accessibility error or RMSD; its solid line covers all proteins.\n"
              "RMSD range (in brackets in B) = highest minus lowest RMSD to the experimental structure among a protein's candidates; it is not the candidates' diversity among themselves.",
              fontsize=9, color=c["text2"], ha="left", va="center", linespacing=1.5)
     return fig
@@ -329,13 +352,13 @@ def figure2(items, stats, a, plt, c, page, n_pages):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--scores-dir", help="score_candidates.py output folder (candidate_scores.csv + structure_candidate_scores.csv)")
-    ap.add_argument("--accessibility-csv")
-    ap.add_argument("--structure-csv")
+    ap.add_argument("--accessibility-csv", nargs="+", help="one or more accessibility score tables, combined before matching")
+    ap.add_argument("--structure-csv", nargs="+", help="one or more structural score tables; a combined score table may be used on both sides")
     ap.add_argument("--x", default="ac_error", choices=["ac_error", "ac_corr_error", "ac_rmse"], help="accessibility error column")
     ap.add_argument("--y", default="rmsd_ca", choices=list(Y_CHOICES), help="structural metric (RMSD is primary)")
-    ap.add_argument("--subset-rmsd-range", type=float, default=1.0,
+    ap.add_argument("--subset-rmsd-range", type=float, default=None,
                     help="supplementary subset: proteins whose RMSD range (highest - lowest RMSD to the experimental structure) is at least "
-                         "this many A. Nothing is excluded from the main summary; 0 makes the subset equal to everything")
+                         "this many A. Disabled by default; nothing is excluded from the main summary")
     ap.add_argument("--n-boot", type=int, default=10000)
     ap.add_argument("--cols", type=int, default=5, help="columns of the per-protein figure")
     ap.add_argument("--per-page", type=int, default=20, help="proteins per page of the per-protein figure")
@@ -354,6 +377,8 @@ def main():
     if a.only_splits:
         rows = [r for r in rows if r["split"] in set(a.only_splits)]
         print(f"--only-splits {a.only_splits}: kept {len(rows)} of {n_before_split} candidates")
+    if not rows:
+        ap.error("no candidates remain after dataset filtering")
     by, stats = group(rows, a.subset_rmsd_range)
     for s in stats:
         s["rmsd_ca_range_label"] = f"{s['rmsd_range_A']:.2g} Å" if np.isfinite(s["rmsd_range_A"]) else "n/a"
@@ -362,8 +387,8 @@ def main():
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     f1 = figure1(rows, stats, a, plt, c)
-    f1.savefig(out / "fig1_accessibility_vs_accuracy.png", dpi=200)
-    f1.savefig(out / "fig1_accessibility_vs_accuracy.svg")
+    f1.savefig(out / "fig1_accessibility_vs_accuracy.png", dpi=200, bbox_inches="tight")
+    f1.savefig(out / "fig1_accessibility_vs_accuracy.svg", bbox_inches="tight")
     items = list(by.items())
     n_pages = max(1, int(np.ceil(len(items) / a.per_page)))
     for pg in range(n_pages):
@@ -386,9 +411,10 @@ def main():
     short = {k: v for k, v in counts.items() if v < k_max}
     if short:
         print(f"WARNING: proteins with fewer plotted candidates than the maximum ({k_max}): {short}", file=sys.stderr)
-    sha = lambda f: hashlib.sha1(Path(f).read_bytes()).hexdigest()
+    def inputs(paths):
+        return [{"path": str(p), "sha1": hashlib.sha1(Path(p).read_bytes()).hexdigest()} for p in input_paths(paths)]
     (out / "plot_settings.json").write_text(json.dumps({
-        "accessibility_csv": str(acc_csv), "accessibility_csv_sha1": sha(acc_csv), "structure_csv": str(st_csv), "structure_csv_sha1": sha(st_csv),
+        "accessibility_inputs": inputs(acc_csv), "structure_inputs": inputs(st_csv),
         "x_column": a.x, "y_metric": a.y, "x_meaning": "accessibility error against the reference computed from the experimental structure",
         "subset_rmsd_range_A": a.subset_rmsd_range, "only_splits": a.only_splits, "n_boot": a.n_boot, "strict": a.strict,
         "rows_accessibility_table": report["rows_accessibility_table"], "rows_structure_table": report["rows_structure_table"],
@@ -412,7 +438,10 @@ def main():
 
     allv = [s["spearman_rho"] for s in stats if s["in_summary"]]
     subv = [s["spearman_rho"] for s in stats if s["in_subset"]]
-    for label, v in (("ALL proteins", allv), (f"subset, RMSD range >= {a.subset_rmsd_range:g} A", subv)):
+    summaries = [("ALL proteins", allv)]
+    if a.subset_rmsd_range is not None:
+        summaries.append((f"subset, RMSD range >= {a.subset_rmsd_range:g} A", subv))
+    for label, v in summaries:
         med, lo, hi = bootstrap_median(v, a.n_boot)
         print(f"{label}: n = {len(v)}, median Spearman rho {med:+.3f}  95% bootstrap CI [{lo:+.3f}, {hi:+.3f}]; rho > 0 in {sum(x > 0 for x in v)} of {len(v)}")
     undefined = [s["entry"] for s in stats if not s["in_summary"]]
