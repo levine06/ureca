@@ -2,3 +2,4 @@ logs/
 runs/
 !results/
 results/**/*.csv.gz
+submit_structure.pbs
