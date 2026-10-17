@@ -10,17 +10,26 @@ A useful accessibility measurement gives a rising relationship: candidates that 
 (small x) are structurally more accurate (small y). NOTE: the reference accessibility here is COMPUTED from the experimental
 structure (compute_truth_accessibility.py); it is not a measured experimental signal, so this is the best-case input. Both axes are ERRORS (lower = better), so "works" = positive slope.
 
-Why the headline panel is within-protein. Proteins differ enormously in size and in how hard they are (here Ca RMSD
+Why everything is within-protein. Proteins differ enormously in size and in how hard they are (here Ca RMSD
 0.3 .. 19 A, accessibility error 0.013 .. 0.10), so a raw pooled scatter would show a strong "relationship" that is only
 "big/hard proteins are bad on both axes" and says nothing about whether accessibility ranks candidates of the SAME protein.
-The pooled panel therefore plots each candidate's rank percentile within its own protein on both axes (0 = best candidate
-of that protein, 1 = worst; ties share the mean rank), which is exactly what the per-protein Spearman correlation measures.
+The protein is therefore the unit throughout, and candidates are only ever compared with their own protein's candidates.
 
-Figures written to --out (PNG + SVG each, plus tables):
-  fig1_accessibility_vs_accuracy   A: pooled within-protein rank scatter with binned mean;  B: per-protein Spearman rho
-  fig2_per_protein_raw_p<k>        small panels with RAW values and their own axes, --per-page proteins per page
-  plotted_points.csv, per_protein_stats.csv   the numbers behind the figures (table view)
-  dropped_rows.csv, plot_settings.json        rows that were NOT plotted (missing values) and the inputs/settings/matched counts (traceability)
+Figures written to --out (PNG + SVG):
+  fig1_accessibility_vs_accuracy   A: each protein's candidates are split into 5 equal groups by their within-protein rank of
+                                      accessibility error (group 1 = the 20 % of candidates closest to the reference, group 5 =
+                                      furthest; tie rule: the AVERAGE rank of tied candidates decides the group). For every protein
+                                      and group the mean within-protein rank percentile of the structural error is computed
+                                      (0 = most accurate candidate of that protein, 1 = least; 0.5 = expected average rank under unrelated rankings); the boxes
+                                      are over proteins (one value per protein and group; line = median, box = quartiles,
+                                      whiskers = 1.5 x quartile range, dots = proteins). A useful signal rises from group 1 to 5.
+                                   B: per-protein Spearman rho, one row per dataset split (dots = proteins, bar = median with
+                                      95 % bootstrap interval over proteins).
+  fig2_per_protein_raw_p<k>        OPTIONAL (--raw-pages): small panels with RAW values and their own axes.
+  plotted_points.csv, per_protein_stats.csv, bin_summary.csv   the numbers behind the figures
+  dropped_rows.csv, plot_settings.json   rows that were NOT plotted (missing values) and the inputs/settings/matched counts
+Ranks do not carry magnitude, so the size of the effect is also reported in raw units: per protein, the mean structural error of
+group 5 minus group 1 (A for RMSD), summarised as the median over proteins with a bootstrap interval.
 Main summary = ALL proteins with a defined rho (>= 4 candidates, neither axis constant): median of the per-protein rho with
 a percentile bootstrap over proteins (the independent unit), overall and per split, plus the count with rho > 0.
 Optional supplementary summary (disabled by default) = the subset whose "RMSD range" is >= --subset-rmsd-range, shown as ringed dots in B, a
@@ -61,6 +70,7 @@ Y_CHOICES = {"rmsd_ca": ("Cα RMSD to the experimental structure (Å)", lambda v
 X_LABELS = {"ac_error": "Accessibility error against the experimental-structure reference\n(mean absolute error of relative accessibility, mean over probe radii)",
             "ac_corr_error": "Accessibility error against the experimental-structure reference\n(1 − correlation of the accessibility profiles)",
             "ac_rmse": "Accessibility error against the experimental-structure reference\n(RMS error of relative accessibility)"}
+YSHORT = {"rmsd_ca": "C\u03b1 RMSD", "lddt_ca": "1 \u2212 lDDT-C\u03b1", "tm_score": "1 \u2212 TM-score"}
 SHORT_X = {"ac_error": "accessibility error (MAE)", "ac_corr_error": "accessibility error (1 − r)", "ac_rmse": "accessibility error (RMSE)"}
 
 
@@ -216,99 +226,113 @@ def summarise(stats, a, splits):
     return out
 
 
-def binned_mean(pts, n_bins=10):
-    xs, ys = np.array([r["x_rank"] for r in pts]), np.array([r["y_rank"] for r in pts])
-    k = np.clip(np.digitize(xs, np.linspace(0, 1, n_bins + 1)) - 1, 0, n_bins - 1)
-    keep = [i for i in range(n_bins) if (k == i).any()]
-    return np.array([xs[k == i].mean() for i in keep]), np.array([ys[k == i].mean() for i in keep])
+N_BINS = 5
 
 
-def figure1(rows, stats, a, plt, c):
+def bin_of(x):
+    """Group index 0..4 of every candidate of ONE protein from the within-protein rank of its accessibility error. Uses the average
+    rank r (1..K) of tied candidates: bin = floor((r - 1) / K * 5), so K = 25 gives exactly 5 candidates per group."""
+    k = len(x)
+    return np.minimum(((rankdata(x) - 1.0) / k * N_BINS).astype(int), N_BINS - 1)
+
+
+def bin_table(by, in_sum):
+    """One row per protein and group: mean within-protein structural rank percentile and mean raw structural error."""
+    rows = []
+    for name, rs in by.items():
+        if name not in in_sum or len(rs) < N_BINS:
+            continue
+        x = np.array([r["x"] for r in rs])
+        b = bin_of(x)
+        for g in range(N_BINS):
+            sel = b == g
+            if sel.any():
+                rows.append({"entry": name, "split": rs[0]["split"], "bin": g + 1, "n": int(sel.sum()),
+                             "mean_y_rank": float(np.mean([r["y_rank"] for r, m in zip(rs, sel) if m])),
+                             "mean_y": float(np.mean([r["y"] for r, m in zip(rs, sel) if m]))})
+    return rows
+
+
+def figure1(rows, stats, by, a, plt, c):
     in_sum = {s["entry"] for s in stats if s["in_summary"]}
-    in_sub = {s["entry"] for s in stats if s["in_subset"]}
     ylab = Y_CHOICES[a.y][0]
     found = {r["split"] for r in rows}
     splits = [s for s in SPLIT_COLOURS if s in found] + sorted(found - set(SPLIT_COLOURS))
     summary = summarise(stats, a, splits)
-    fig = plt.figure(figsize=(14.5, max(9.0, 0.24 * len(stats) + 3.2)))
-    gs = fig.add_gridspec(1, 2, width_ratios=[1.15, 1], wspace=0.30, left=0.06, right=0.98, top=0.895, bottom=0.08)
+    bt = bin_table(by, in_sum)
+    fig = plt.figure(figsize=(13.0, 5.6))
+    gs = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.15], wspace=0.30, left=0.07, right=0.98, top=0.74, bottom=0.30)
+
+    # --- A: structural rank by accessibility-rank group, one value per protein and group
     ax = fig.add_subplot(gs[0])
-
-    # --- A: pooled within-protein rank scatter (all proteins)
-    for sp in splits:
-        pts = [r for r in rows if r["split"] == sp and r["entry"] in in_sum]
-        ax.scatter([r["x_rank"] for r in pts], [r["y_rank"] for r in pts], s=20, color=colour_of(sp, c), alpha=0.5,
-                   linewidths=0.4, edgecolors=c["surface"], zorder=3,
-                   label=f"{SPLIT_LABELS.get(sp, sp or 'Unspecified')}: {len({r['entry'] for r in pts})} proteins, {len(pts)} candidates")
-    pooled = [r for r in rows if r["entry"] in in_sum]
-    if len(pooled) > 20:
-        cx, cy = binned_mean(pooled)
-        ax.plot(cx, cy, color=c["text"], lw=2.2, zorder=4, label=f"mean of y in 10 x-bins, all {len(in_sum)} proteins")
-    sub = [r for r in rows if r["entry"] in in_sub]
-    if len(sub) > 20:
-        cx, cy = binned_mean(sub)
-        ax.plot(cx, cy, color=c["text"], lw=1.6, ls=(0, (5, 3)), zorder=4,
-                label=f"same, only the {len(in_sub)} proteins with RMSD range \u2265 {a.subset_rmsd_range:g} \u00c5")
-    ax.plot([0, 1], [0, 1], color=c["muted"], lw=1, ls=(0, (1, 3)), zorder=1, label="identical ranks (\u03c1 = +1)")
-    ax.set_xlim(-0.03, 1.03)
-    ax.set_ylim(-0.03, 1.03)
-    ax.set_box_aspect(1)
-    ax.set_anchor("N")
-    ax.set_xlabel("Within-protein RANK of accessibility error against the reference\n(0 = candidate closest to the reference accessibility, 1 = furthest)")
-    ax.set_ylabel(f"Within-protein RANK of structural error\n(0 = most accurate candidate, 1 = least; {ylab.split(' to ')[0]})")
-    ax.grid(color=c["grid"], lw=0.6, zorder=0)
+    ents = sorted({r["entry"] for r in bt})
+    data = [[r["mean_y_rank"] for r in bt if r["bin"] == g] for g in range(1, N_BINS + 1)]
+    ax.axhline(0.5, color=c["muted"], lw=1, ls=(0, (4, 3)), zorder=1)
+    ax.boxplot(data, positions=range(1, N_BINS + 1), widths=0.55, showfliers=False, patch_artist=True,
+               boxprops=dict(facecolor=c["surface"], edgecolor=c["text2"], lw=1.2), medianprops=dict(color=c["text"], lw=2.2),
+               whiskerprops=dict(color=c["text2"], lw=1.1), capprops=dict(color=c["text2"], lw=1.1), zorder=2)
+    rng = np.random.default_rng(0)
+    for g in range(1, N_BINS + 1):
+        pts = [r for r in bt if r["bin"] == g]
+        ax.scatter(g + rng.uniform(-0.2, 0.2, len(pts)), [r["mean_y_rank"] for r in pts], s=9,
+                   color=[colour_of(r["split"], c) for r in pts], alpha=0.55, linewidths=0, zorder=3)
+    ax.set_xticks(range(1, N_BINS + 1))
+    ax.set_xticklabels(["1\nclosest", "2", "3", "4", "5\nfurthest"])
+    ax.set_ylim(-0.02, 1.02)
+    ax.set_xlabel("Candidate group by error against PDB-derived reference SASA\n(within each protein: 1 = lowest error, 5 = highest error)")
+    ax.set_ylabel("Structural rank percentile within protein\n(0 = most accurate candidate, 1 = least)")
+    ax.grid(axis="y", color=c["grid"], lw=0.6, zorder=0)
     ax.set_axisbelow(True)
-    ax.set_title("A  Candidates ranked within their own protein")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), fontsize=8.5, labelcolor=c["text2"], handletextpad=0.4)
+    ax.set_title("A  Does closer SASA agreement mean better structural rank?")
+    med = [np.median(v) if v else np.nan for v in data]
 
-    # --- B: per-protein Spearman rho (sorted dot plot, all proteins)
+    # --- B: per-protein rho, one row per split
     bx = fig.add_subplot(gs[1])
-    order = sorted(stats, key=lambda s: (-np.inf if not np.isfinite(s["spearman_rho"]) else s["spearman_rho"]))
-    ypos = np.arange(len(order))
+    rows_b = [("all", "All proteins")] + [(sp, SPLIT_LABELS.get(sp, sp or "Unspecified")) for sp in splits if sp]
     bx.axvline(0, color=c["muted"], lw=1, zorder=1)
-    n, med, lo, hi, npos = summary[("main", "all")]
-    if np.isfinite(med):
-        bx.axvspan(lo, hi, color=c["text2"], alpha=0.14, lw=0, zorder=0)
-        bx.axvline(med, color=c["text"], lw=1.6, zorder=2)
-    for yv, s in zip(ypos, order):
-        if not np.isfinite(s["spearman_rho"]):
+    for yi, (key, lab) in enumerate(rows_b):
+        vals = [(s["spearman_rho"], s["split"]) for s in stats if s["in_summary"] and (key == "all" or s["split"] == key)]
+        if not vals:
             continue
-        col = colour_of(s["split"], c)
-        bx.plot([0, s["spearman_rho"]], [yv, yv], color=col, lw=1.3, alpha=0.5, zorder=2)
-        bx.scatter([s["spearman_rho"]], [yv], s=44 if s["in_subset"] else 34, color=col,
-                   edgecolors=c["text"] if s["in_subset"] else col, linewidths=1.4 if s["in_subset"] else 0.6, zorder=3)
-    bx.set_yticks(ypos)
-    bx.set_yticklabels([f"{s['entry']}  ({s['rmsd_ca_range_label']})" for s in order], fontsize=8)
-    for tick, s in zip(bx.get_yticklabels(), order):
-        tick.set_color(c["text"] if s["in_subset"] else c["text2"])
-    bx.set_ylim(-1, len(order))
-    bx.set_xlim(-1.05, 1.05)
-    bx.set_xlabel("Spearman \u03c1 across the protein's candidates\n(\u03c1 > 0: lower accessibility error \u2192 lower structural error)")
+        v = np.array([x for x, _ in vals])
+        bx.scatter(v, yi + rng.uniform(-0.28, 0.28, len(v)), s=16, alpha=0.6, linewidths=0,
+                   color=[colour_of(sp, c) for _, sp in vals], zorder=2)
+        n_, m_, lo_, hi_, npos_ = summary[("main", key)]
+        bx.plot([lo_, hi_], [yi, yi], color=c["text"], lw=1.6, solid_capstyle="butt", zorder=1.5)
+        bx.plot([m_, m_], [yi - 0.4, yi + 0.4], color=c["text"], lw=2.4, zorder=1.6)
+    bx.set_yticks(range(len(rows_b)))
+    bx.set_yticklabels([f"{lab}  (n = {summary[('main', key)][0]})" for key, lab in rows_b])
+    bx.set_ylim(len(rows_b) - 0.45, -0.7)
+    bx.set_xlim(-1.02, 1.02)
+    bx.set_xlabel(f"Per-protein Spearman \u03c1 across candidate predictions\nUnderlying x = accessibility error; underlying y = {YSHORT[a.y]}")
     bx.grid(axis="x", color=c["grid"], lw=0.6, zorder=0)
     bx.set_axisbelow(True)
     bx.tick_params(axis="y", length=0)
     bx.spines["left"].set_visible(False)
     bx.set_title("B  Per-protein correlation")
-    lines = [f"ALL proteins (n = {n}): median \u03c1 {med:+.2f}", f"  95% CI [{lo:+.2f}, {hi:+.2f}];  \u03c1 > 0 in {npos} of {n}"]
-    for sp in splits:
-        if sp:
-            m = summary[("main", sp)]
-            lines.append(f"  {SPLIT_LABELS.get(sp, sp)} (n = {m[0]}): {m[1]:+.2f}  [{m[2]:+.2f}, {m[3]:+.2f}]")
-    sn, smed, slo, shi, snpos = summary[("subset", "all")]
-    if a.subset_rmsd_range is not None:
-        lines += ["", f"Supplementary: RMSD range \u2265 {a.subset_rmsd_range:g} \u00c5 (ringed dots), n = {sn}",
-                  f"  median \u03c1 {smed:+.2f}  [{slo:+.2f}, {shi:+.2f}];  \u03c1 > 0 in {snpos} of {sn}"]
-    fig.text(0.07, 0.10, "Summary (median of the per-protein \u03c1, bootstrap over proteins)\n" + "\n".join(lines), fontsize=9, color=c["text"],
-             va="bottom", ha="left", linespacing=1.45, bbox=dict(boxstyle="round,pad=0.6", fc=c["surface"], ec=c["grid"], lw=0.8))
 
+    n, medr, lo, hi, npos = summary[("main", "all")]
+    diffs = []
+    for e in ents:
+        g1 = [r for r in bt if r["entry"] == e and r["bin"] == 1]
+        g5 = [r for r in bt if r["entry"] == e and r["bin"] == N_BINS]
+        if g1 and g5:
+            diffs.append(g5[0]["mean_y"] - g1[0]["mean_y"])
+    dmed, dlo, dhi = bootstrap_median(diffs, a.n_boot)
+    unit = " \u00c5" if a.y == "rmsd_ca" else ""
+    fig.text(0.07, 0.03,
+             f"Median \u03c1 {medr:+.2f} [95 % CI {lo:+.2f}, {hi:+.2f}]; \u03c1 > 0 in {npos} of {n} proteins.   "
+             f"Median structural rank percentile: group 1 {med[0]:.2f}, group 5 {med[-1]:.2f} (0.5 = expected average rank under unrelated rankings).\n"
+             f"Raw size of the effect: group 5 minus group 1 mean {YSHORT[a.y]}, median over {len(diffs)} proteins {dmed:+.3g}{unit} [{dlo:+.3g}, {dhi:+.3g}].\n"
+             "A: each dot is one protein/group mean. B: each dot is one protein's \u03c1; tick = median \u03c1 (not average), bar = 95% bootstrap interval. Colour = dataset.",
+             fontsize=9, color=c["text2"], ha="left", va="bottom", linespacing=1.5)
     fig.suptitle("Do candidates with lower accessibility error tend to be structurally more accurate?",
-                 x=0.06, y=0.985, ha="left", fontsize=14, fontweight="bold", color=c["text"])
-    fig.text(0.06, 0.945, f"{len(rows)} candidates, {len(stats)} proteins.  x = {SHORT_X[a.x]} against the reference accessibility computed from the "
-             f"experimental structure (not a measured signal).  y = {ylab}.\n"
-             "Panel A shows within-protein RANKS, not raw accessibility error or RMSD; its solid line covers all proteins.\n"
-             "RMSD range (in brackets in B) = highest minus lowest RMSD to the experimental structure among a protein's candidates; it is not the candidates' diversity among themselves.",
-             fontsize=9, color=c["text2"], ha="left", va="center", linespacing=1.5)
-    return fig
+                 x=0.07, y=0.985, ha="left", fontsize=14, fontweight="bold", color=c["text"])
+    fig.text(0.07, 0.885, f"{len(rows)} candidates, {len(stats)} proteins. Accessibility error {SHORT_X[a.x].replace('accessibility error ', '')}: candidate relative SASA vs reference relative SASA.\n"
+             f"Reference = SASA computed from experimental PDB coordinates, NOT independently measured accessibility. Structural error = {YSHORT[a.y]} against the PDB structure.\n"
+             f"Each protein's \u03c1 uses one point per candidate: x = {SHORT_X[a.x]}, y = {YSHORT[a.y]}; Spearman compares the two candidate rankings.",
+             fontsize=9.5, color=c["text2"], ha="left", va="center", linespacing=1.5)
+    return fig, bt
 
 
 def figure2(items, stats, a, plt, c, page, n_pages):
@@ -360,6 +384,7 @@ def main():
                     help="supplementary subset: proteins whose RMSD range (highest - lowest RMSD to the experimental structure) is at least "
                          "this many A. Disabled by default; nothing is excluded from the main summary")
     ap.add_argument("--n-boot", type=int, default=10000)
+    ap.add_argument("--raw-pages", action="store_true", help="also write the per-protein raw-value pages (fig2_per_protein_raw_p<k>); off by default")
     ap.add_argument("--cols", type=int, default=5, help="columns of the per-protein figure")
     ap.add_argument("--per-page", type=int, default=20, help="proteins per page of the per-protein figure")
     ap.add_argument("--theme", default="light", choices=list(THEMES))
@@ -386,12 +411,12 @@ def main():
     plt, c = setup(a.theme)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    f1 = figure1(rows, stats, a, plt, c)
+    f1, bt = figure1(rows, stats, by, a, plt, c)
     f1.savefig(out / "fig1_accessibility_vs_accuracy.png", dpi=200, bbox_inches="tight")
     f1.savefig(out / "fig1_accessibility_vs_accuracy.svg", bbox_inches="tight")
     items = list(by.items())
     n_pages = max(1, int(np.ceil(len(items) / a.per_page)))
-    for pg in range(n_pages):
+    for pg in range(n_pages if a.raw_pages else 0):
         f2 = figure2(items[pg * a.per_page:(pg + 1) * a.per_page], stats, a, plt, c, pg + 1, n_pages)
         f2.savefig(out / f"fig2_per_protein_raw_p{pg + 1}.png", dpi=200)
         f2.savefig(out / f"fig2_per_protein_raw_p{pg + 1}.svg")
@@ -424,6 +449,10 @@ def main():
     print(f"matched {report['matched']} of {report['rows_accessibility_table']} (accessibility table) / {report['rows_structure_table']} (structure table) rows; "
           f"plotted {len(rows)}; dropped for missing values {len(report['dropped_nonfinite'])}; candidates per protein {min(counts.values())}..{k_max}")
 
+    with open(out / "bin_summary.csv", "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=["entry", "split", "bin", "n", "mean_y_rank", "mean_y"])
+        w.writeheader()
+        w.writerows({k: (f"{v:.6g}" if isinstance(v, float) else v) for k, v in r.items()} for r in bt)
     with open(out / "plotted_points.csv", "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["entry", "split", "candidate", "x_accessibility_error", "y_structural_error", "x_rank_within_protein", "y_rank_within_protein"])
@@ -448,7 +477,8 @@ def main():
     if undefined:
         print(f"rho undefined (fewer than 4 candidates or a constant axis), not in the summary: {undefined}")
     print(f"{len(rows)} candidates, {len(stats)} proteins; wrote {out}/fig1_accessibility_vs_accuracy.png|svg, "
-          f"fig2_per_protein_raw_p1..p{n_pages}.png|svg, plotted_points.csv, per_protein_stats.csv, dropped_rows.csv, plot_settings.json")
+          + (f"fig2_per_protein_raw_p1..p{n_pages}.png|svg, " if a.raw_pages else "")
+          + "plotted_points.csv, per_protein_stats.csv, bin_summary.csv, dropped_rows.csv, plot_settings.json")
 
 
 if __name__ == "__main__":

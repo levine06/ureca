@@ -13,14 +13,17 @@ All figures combine 2,125 candidates from 85 proteins: development (30 proteins,
 
 ## Reading the Figures
 
-`accessibility_vs_accuracy/` contains the overview and five pages of raw per-protein scatter plots. In overview panel A, both axes are ranks within each protein (0 = best, 1 = worst); the solid line averages structural ranks in accessibility-rank bins. The dotted diagonal represents identical rankings, not a fitted trend. Overlapping dots can hide candidates. Panel B shows one rho per protein; brackets give its highest minus lowest candidate RMSD. Raw plots have independent axis limits: compare their numbers, not just visual slopes.
+`accessibility_vs_accuracy/fig1_accessibility_vs_accuracy.png` answers the main question in two panels:
 
-`controls/` contains an overview and per-protein selection figure for each accessibility error:
+- **Panel A:** within each protein, group candidates from lowest to highest accessibility error into five rank groups. Each dot is that protein/group's mean structural-rank percentile; the boxes summarise proteins. Lower is better (0 = best candidate, 1 = worst); 0.5 is the expected average under unrelated rankings. In this dataset every group contains five candidates; average-rank ties can make group sizes unequal in future datasets.
+- **Panel B:** each dot is one protein's Spearman rho, grouped by dataset. For each protein, the underlying candidate-level x is accessibility error and y is C-alpha RMSD. The tick is the median rho across proteins, not their average; the bar is its 95% bootstrap interval. Each protein appears in both the all-protein row and its dataset row.
+- The caption's raw effect size is the median, across proteins, of group 5 mean RMSD minus group 1 mean RMSD. Its positive value (+0.0624 angstroms) supports the expected direction but indicates a small typical absolute difference; it is not a top-1 gain over OpenFold.
 
-- **Overview A:** coloured dots are real rho; grey bars span 95% of shuffled rho values and ticks mark their means. Rows are sorted by real minus mean shuffled rho (delta rho), largest advantage first. A dot right of its tick indicates better ranking agreement than the average shuffle, not necessarily a statistically significant result for that protein.
-- **Overview B:** dots show median rho across proteins; horizontal lines are 95% bootstrap intervals over proteins. The grey band is the shuffled null range of that summary, not a bootstrap interval. Compare the real result with this band, not only with zero.
-- **Overview C:** mean structural-rank percentile of the candidate selected by minimum accessibility error. Lower is better: 0 = best, 1 = worst; random selection averages 0.5 with untied structural scores. Compare the real selection with the shuffle band and the supplied OpenFold ranking.
-- **Per-protein selection:** coloured dot = accessibility-selected candidate; cross = OpenFold top-ranked candidate; grey bar/tick = shuffled-selection range/mean. Brackets show selected RMSD minus that protein's mean candidate RMSD; negative is better than average. Rank percentiles do not show the absolute size of RMSD gains.
+`controls/` contains two figures: `controls_mae_rmsd_ca_overview.png` and `controls_corr_rmsd_ca_overview.png`. Reference means relative SASA computed from experimental PDB coordinates, not independently measured accessibility. Pearson r compares candidate and reference SASA across residues; `1 - r` is an accessibility error, not a correlation with RMSD.
+
+- **Panel A, ranking agreement:** one rho per protein, correlating accessibility error (MAE or `1 - r`) with RMSD across its 25 candidates; dots show the median of these rhos. Positive is the expected direction. Horizontal lines are 95% bootstrap intervals over proteins. The three selection-only reference rows are blank here because they do not define an accessibility error across candidates.
+- **Panel B, selection:** choose the lowest-accessibility-error candidate for each protein, then average its structural-rank percentile across proteins. Lower is better: 0 = best available candidate, 1 = worst, 0.5 = expected random rank. The supplied ranking selects OpenFold's top-ranked candidate; the oracle selects the lowest actual RMSD using the known PDB structure.
+- In both panels the grey band is the 95% shuffle-null range of the aggregate statistic, not a bootstrap interval; the dashed line is its mean. Compare unshuffled SASA against this null. Ranks show ordering, not RMSD differences in angstroms.
 
 Shuffling/reversal/wrong-protein profiles disrupt positional information. Keeping fewer residues tests sparsity. Buried/exposed controls test whether coarse labels retain useful information instead of needing precise accessibility values. All aggregate summaries remain pooled across datasets; colours alone do not establish a separate test-set result.
 
@@ -45,10 +48,10 @@ From the repository root, install `numpy`, `scipy`, `matplotlib` and the local p
 ```bash
 python stage3/plots/plot_accessibility_vs_accuracy.py \
   --accessibility-csv \
-    stage3/scoring/results/development_validation/accessibility_candidate_scores.csv \
+    stage3/scoring/results/development_validation/candidate_scores.csv \
     stage3/scoring/results/test/candidate_scores.csv \
   --structure-csv \
-    stage3/scoring/results/development_validation/structure_candidate_scores.csv \
+    stage3/scoring/results/development_validation/candidate_scores.csv \
     stage3/scoring/results/test/candidate_scores.csv \
   --x ac_error --y rmsd_ca --strict --out <figures_out>
 
@@ -58,3 +61,5 @@ python stage3/plots/plot_controls.py \
 ```
 
 Controls plotting reads the locally retained output of [run_controls.py](../controls/README.md), including its shuffle null. Only PNG deliverables and production scripts are stored here; generated SVGs, diagnostic tables, settings, logs and test scripts are omitted. Future datasets should regenerate and replace the figures rather than add duplicate versions.
+
+Only three summary PNGs are retained. Optional `--raw-pages` (accessibility script) and `--per-protein` (controls script) generate detailed inspection plots locally; they are not part of the committed deliverables.

@@ -2,27 +2,25 @@
 """Stage 3 control figures: does the accessibility signal survive the controls, and does choosing by it help?
 
 Reads the output folder of run_controls.py and draws, for one accessibility error (--error-metric mae|corr) and one structural
-metric (--metric rmsd_ca primary), two figures:
+metric (--metric rmsd_ca primary), ONE figure:
 
-  controls_<err>_<metric>_overview     A  per protein: the real rho (dot) against the range of that protein's own SHUFFLED rho
-                                          (bar = 2.5-97.5 %, tick = mean); a real dot clearly right of its bar = the real
-                                          reference profile carries information a shuffled one does not.
-                                       B  across proteins: median rho under each control (dot + 95 % bootstrap interval over
-                                          proteins). The grey band is the 95 % range of the protein-level shuffle null of the
-                                          median (each draw takes one shuffle repetition per protein).
-                                       C  top-1 selection: mean rank percentile of the candidate with the lowest accessibility
-                                          error (0 = it was the most accurate candidate, 0.5 = random pick, 1 = the worst), under
-                                          each control, next to the reference rules random / oracle / ranking_top1 (the
-                                          candidate ranked first by the supplied ranking column). Band = 95 % range of the shuffle null.
-  controls_<err>_<metric>_per_protein  one row per protein: real pick percentile (dot) against the range of the shuffled picks
-                                       (bar), the model's own top-1 (cross), the oracle (0) and random (0.5) rules.
+  controls_<err>_<metric>_overview   rows = the real reference, each control, then the reference rules (ranking_top1 as supplied
+                                      by --rank-csv, random, oracle); two aligned panels:
+                                      A  ranking agreement: median Spearman rho across proteins (dot, 95 % bootstrap interval over
+                                         proteins) with the protein-level shuffle null band (each draw takes one shuffle repetition
+                                         per protein);
+                                      B  selection: mean structural rank percentile of the candidate with the lowest accessibility
+                                         error (0 = it was the most accurate candidate, 0.5 = random, 1 = worst), same rows, with
+                                         the shuffle null band.
+The per-protein shuffle ranges and the per-protein selection plot are not drawn by default (a single protein's rho from 25
+candidates is imprecise, and per-protein p-values are in controls_per_entry.csv); --per-protein writes the old per-protein
+selection figure controls_<err>_<metric>_per_protein.
 
 How to read it (the question is whether accessibility is informative data for structure prediction, not whether two numbers
 correlate): the real values must sit clearly beyond the shuffle band, and the controls that keep some real information
 (reverse, other_protein) should land between real and shuffle or at the null. Compare `real` with the SHUFFLE null, not with 0
 (rho) or 0.5 (pick): neither null is guaranteed to be centred there (clearly not for "mae"; read the generated null for "corr" too).
-All proteins form the summary; no RMSD-range subset is displayed. Panel A is sorted by real rho minus the mean shuffled rho,
-with the largest advantage at the top. The reference accessibility here is COMPUTED from the experimental structure,
+All proteins form the summary; no RMSD-range subset is displayed. The reference accessibility here is COMPUTED from the experimental structure,
 so passing these controls means the idea is not refuted on the best-case input, not that real dye data will work.
 
     python scripts/plot_controls.py --controls-dir controls_out --out figures_controls
@@ -45,18 +43,18 @@ THEMES = {
                  dev="#3987e5", val="#d95926", test_a="#51c993", test_b="#d78bd0"),
 }
 CONTROL_ORDER = ["real", "shuffle", "reverse", "other_protein", "dropout:0.5", "dropout:0.2", "binary:0.2", "binary:median"]
-CONTROL_LABEL = {"real": "real reference profile", "shuffle": "shuffle (residue values permuted)", "reverse": "reverse along the sequence",
+CONTROL_LABEL = {"real": "Unshuffled PDB-derived SASA", "shuffle": "shuffle (residue values permuted)", "reverse": "reverse along the sequence",
                  "other_protein": "another protein's profile", "dropout:0.5": "keep 50 % of residues", "dropout:0.2": "keep 20 % of residues",
                  "binary:0.2": "buried / exposed (threshold 0.2)", "binary:median": "buried / exposed (median split)",
                  "random": "random pick (reference)", "oracle": "oracle: best candidate (reference)",
                  "ranking_top1": "supplied ranking: top-ranked (reference)"}
 ERR_LABEL = {"mae": "mean absolute error of relative accessibility", "corr": "1 − correlation of the accessibility profiles"}
-ERROR_NAME = {"mae": "accessibility MAE", "corr": "accessibility 1 − r"}
+ERROR_NAME = {"mae": "MAE", "corr": "1 − r"}
 ERROR_EXPLANATION = {
-    "mae": "MAE = mean absolute ACCESSIBILITY error: the average absolute difference between candidate and reference relative accessibility values.",
-    "corr": "1 − Pearson r = accessibility pattern error: low when the same residues tend to be exposed or buried.",
+    "mae": "MAE compares relative SASA calculated from each candidate with relative SASA calculated from the experimental PDB structure.",
+    "corr": "r = Pearson correlation across residues: candidate relative SASA versus PDB-derived reference relative SASA. Error = 1 - r.",
 }
-PICK_RULE = {"mae": "lowest accessibility MAE", "corr": "lowest pattern error (1 − Pearson r)"}
+PICK_RULE = {"mae": "lowest MAE", "corr": "lowest 1 − r"}
 METRIC_LABEL = {"rmsd_ca": "Cα RMSD", "lddt_ca": "1 − lDDT-Cα", "tm_score": "1 − TM-score"}
 
 
@@ -160,131 +158,94 @@ class Data:
 
 
 def overview(d, a, plt, c):
-    n = len(d.entries)
-    fig = plt.figure(figsize=(15.0, max(9.5, 0.23 * n + 3.4)))
-    gs = fig.add_gridspec(2, 2, width_ratios=[1.0, 1.05], height_ratios=[1.0, 1.0], wspace=0.55, hspace=0.38, left=0.07, right=0.985,
-                          top=0.86, bottom=0.115)
+    """One figure: the same rows (controls, then reference rules) in two aligned panels, ranking agreement | selection."""
     m = d.metric
-
-    # ---------------------------------------------------------------- A: per-protein real rho vs its shuffle range
-    ax = fig.add_subplot(gs[:, 0])
-    def advantage(entry):
-        real = d.value[("real", entry)]["rho"]
-        null = d.null_of(entry, "rho")
-        null = null[np.isfinite(null)]
-        return float(real - null.mean()) if np.isfinite(real) and null.size else -np.inf
-
-    order = sorted(d.entries, key=lambda e: (advantage(e), e))
-    for i, e in enumerate(order):
-        nul = d.null_of(e, "rho")
-        nul = nul[np.isfinite(nul)]
-        if nul.size:
-            lo, hi = np.quantile(nul, [0.025, 0.975])
-            ax.plot([lo, hi], [i, i], color=c["band"], lw=6, solid_capstyle="butt", zorder=1)
-            ax.plot([nul.mean()] * 2, [i - 0.32, i + 0.32], color=c["text2"], lw=1.2, zorder=2)
-        v = d.value[("real", e)]["rho"]
-        if np.isfinite(v):
-            ax.scatter([v], [i], s=36, color=colour_of(d.split[e], c), zorder=3,
-                       edgecolors=c["surface"], linewidths=0.6)
-    ax.axvline(0, color=c["muted"], lw=1, zorder=0)
-    ax.set_yticks(range(n))
-    ax.set_yticklabels([f"{e}  (Δρ {advantage(e):+.2f})" if np.isfinite(advantage(e)) else f"{e}  (Δρ n/a)" for e in order], fontsize=8)
-    ax.set_ylim(-1, n)
-    ax.set_xlim(-1.05, 1.05)
-    ax.tick_params(axis="y", length=0)
-    ax.spines["left"].set_visible(False)
-    ax.grid(axis="x", color=c["grid"], lw=0.6)
-    ax.set_axisbelow(True)
-    ax.set_xlabel(f"Spearman ρ across candidates: {ERROR_NAME[d.em]} vs {METRIC_LABEL[m]}\n"
-                  "Positive = smaller accessibility error tends to accompany smaller structural error")
-    ax.set_title("A  Real vs shuffled ρ: largest advantage at top")
-    from matplotlib.lines import Line2D
-    ax.legend(handles=[Line2D([], [], color=c["band"], lw=6, label="95 % range of shuffled ρ (tick = mean)"),
-                       *split_handles(d, c, "real ρ")],
-              loc="upper center", bbox_to_anchor=(0.5, -0.07), fontsize=8, labelcolor=c["text2"], ncol=2)
-
-    # ---------------------------------------------------------------- B and C: across proteins, one row per control
-    def across(ax, table, controls, key, lo_key, hi_key, band, null_kind, xlabel, title, refline=None, xlim=None, extra=2.4, band_sub=None):
-        ys = {ctl: i for i, ctl in enumerate(controls)}
-        if band is not None:
-            ax.axvspan(band[0], band[2], color=c["band"], alpha=0.55, lw=0, zorder=0)
-            ax.axvline(band[1], color=c["text2"], lw=1, ls=(0, (3, 3)), zorder=1)
-        if band_sub is not None:
-            ax.axvspan(band_sub[0], band_sub[2], facecolor="none", edgecolor=c["text2"], ls=(0, (4, 3)), lw=1.1, zorder=1)
-            ax.axvline(band_sub[1], color=c["text2"], lw=1, ls=(0, (1, 2)), zorder=1)
-        if refline is not None:
-            ax.axvline(refline, color=c["muted"], lw=1, zorder=1)
-        for which, marker, dy in (("all", "o", 0.0),):
-            for ctl in controls:
-                r = d.row(table, which, ctl)
-                if r is None or not np.isfinite(fnum(r.get(key))):
-                    continue
-                v, lo, hi = fnum(r[key]), fnum(r[lo_key]), fnum(r[hi_key])
-                y = ys[ctl] + dy
-                real = ctl == "real"
-                col = c["text"] if real else c["text2"]
-                ax.plot([lo, hi], [y, y], color=col, lw=2.0 if which == "all" else 1.3, alpha=0.9 if which == "all" else 0.7, zorder=2)
-                ax.scatter([v], [y], s=(52 if real else 38) if which == "all" else 34, marker=marker, zorder=3,
-                           facecolor=col if which == "all" else c["surface"], edgecolor=col, linewidths=1.3)
-        ax.set_yticks(range(len(controls)))
-        def lab(x):
-            ra = d.row(table, "all", x)
-            ns = [ra["n_proteins"]] if ra else []
-            return CONTROL_LABEL.get(x, x) + (f"  (n = {' / '.join(ns)})" if ns else "")
-        ax.set_yticklabels([lab(x) for x in controls], fontsize=8)
-        ax.set_ylim(len(controls) - 0.4 + extra, -0.7)          # `extra` blank rows at the bottom hold the summary box
-        if xlim:
-            ax.set_xlim(*xlim)
-        ax.grid(axis="x", color=c["grid"], lw=0.6)
-        ax.set_axisbelow(True)
-        ax.tick_params(axis="y", length=0)
-        ax.spines["left"].set_visible(False)
-        ax.set_xlabel(xlabel)
-        ax.set_title(title)
-
-    present = [x for x in CONTROL_ORDER if d.row(d.summ, "all", x)]
-    bx = fig.add_subplot(gs[0, 1])
-    band = d.null_band("all", "rho", "median")
-    across(bx, d.summ, present, "median_rho", "ci95_lo", "ci95_hi", band, "rho",
-           "median ρ across proteins (dot; line = 95 % bootstrap interval over proteins)",
-           f"B  Ranking agreement: {ERROR_NAME[d.em]} vs {METRIC_LABEL[m]}", refline=0.0, extra=3.4)
-    real_row = d.row(d.summ, "all", "real")
-    if real_row and band:
-        txt = f"real {fnum(real_row['median_rho']):+.2f}; shuffle null {band[1]:+.2f} [{band[0]:+.2f}, {band[2]:+.2f}]"
-        if real_row.get("p_median_vs_shuffle"):
-            txt += f"\np = {fnum(real_row['p_median_vs_shuffle']):.4f}  (n = {real_row['n_proteins']} matched proteins)"
-        bx.text(0.99, 0.02, txt, transform=bx.transAxes, ha="right", va="bottom", fontsize=8, color=c["text"], linespacing=1.4,
-                bbox=dict(boxstyle="round,pad=0.35", fc=c["surface"], ec=c["grid"], lw=0.8), zorder=6)
-
-    cx = fig.add_subplot(gs[1, 1])
+    controls = [x for x in CONTROL_ORDER if d.row(d.summ, "all", x) or d.row(d.sel, "all", x)]
     rules = [x for x in ("ranking_top1", "random", "oracle") if d.row(d.sel, "all", x)]
-    sel_controls = [x for x in CONTROL_ORDER if d.row(d.sel, "all", x)] + rules
-    band_s = d.null_band("all", "pct", "mean")
-    across(cx, d.sel, sel_controls, "mean_pick_pct", "ci95_lo", "ci95_hi", band_s, "pct",
-           "mean rank percentile of the picked candidate  (0 = best, 0.5 = random, 1 = worst)",
-           f"C  Select by {ERROR_NAME[d.em]}; evaluate by structural rank", refline=0.5, xlim=(-0.02, 1.02), extra=4.4)
-    rs = d.row(d.sel, "all", "real")
-    if rs and band_s:
-        txt = f"real {fnum(rs['mean_pick_pct']):.2f}; shuffle null {band_s[1]:.2f} [{band_s[0]:.2f}, {band_s[2]:.2f}]"
-        if rs.get("p_mean_pct_vs_shuffle"):
-            txt += f"\np = {fnum(rs['p_mean_pct_vs_shuffle']):.4f}  (n = {rs['n_proteins']} matched proteins)"
-        if rs.get("frac_real_better_than_ranking"):
-            txt += f"\nvs {d.rank_label}: {100 * fnum(rs['frac_real_better_than_ranking']):.0f}% win rate (ties count half; n = {rs['n_proteins_vs_ranking']})"
-        cx.text(0.01, 0.02, txt, transform=cx.transAxes, ha="left", va="bottom", fontsize=8, color=c["text"], linespacing=1.4,
-                bbox=dict(boxstyle="round,pad=0.35", fc=c["surface"], ec=c["grid"], lw=0.8), zorder=6)
-    from matplotlib.lines import Line2D
-    cx.legend(handles=[Line2D([], [], marker="o", ls="", color=c["text2"], label="all proteins"),
-                       Line2D([], [], color=c["band"], lw=8, label="shuffle null, all proteins (95 % range)")],
-              loc="upper center", bbox_to_anchor=(0.5, -0.24), fontsize=8, labelcolor=c["text2"], ncol=2)
+    rows = controls + rules
+    n_rows = len(rows)
+    fig, (ax, bx) = plt.subplots(1, 2, figsize=(13.0, 0.52 * n_rows + 3.6), sharey=True,
+                                 gridspec_kw=dict(wspace=0.06, left=0.25, right=0.985, top=0.79, bottom=0.28))
+    ys = {x: i for i, x in enumerate(rows)}
+    real_n = {"rho": (d.row(d.summ, "all", "real") or {}).get("n_proteins"), "pct": (d.row(d.sel, "all", "real") or {}).get("n_proteins")}
 
-    nn = d.settings.get("n_analysed", n)
-    fig.suptitle(f"Controls using {ERROR_NAME[d.em]} against the experimental-structure reference", x=0.07, y=0.985, ha="left",
-                 fontsize=14, fontweight="bold", color=c["text"])
-    fig.text(0.07, 0.925, ERROR_EXPLANATION[d.em] + " Lower is better; scores are averaged over four probe radii.\n"
-             f"{nn} proteins. Accessibility selects/scores candidates; {METRIC_LABEL.get(m, m)} independently evaluates structural accuracy. All proteins are shown.\n"
-             "Panel A labels: Δρ = real minus mean shuffled ρ. Compare `real` with the shuffle band, not with 0 or 0.5.\n"
-             "Summaries are over matched proteins (defined real value, defined shuffle null and, per control, a defined control value; n in brackets); the bootstrap and the null treat proteins, not candidates, as independent.",
-             fontsize=9, color=c["text2"], ha="left", va="center", linespacing=1.5)
+    def panel(axis, table, key, lo_key, hi_key, band, kind, xlabel, title, refline, xlim=None):
+        if band is not None:
+            axis.axvspan(band[0], band[2], color=c["band"], alpha=0.55, lw=0, zorder=0)
+            axis.axvline(band[1], color=c["text2"], lw=1, ls=(0, (3, 3)), zorder=1)
+        axis.axvline(refline, color=c["muted"], lw=1, zorder=1)
+        for x in rows:
+            r = d.row(table, "all", x)
+            if r is None or not np.isfinite(fnum(r.get(key))):
+                continue
+            v, lo, hi = fnum(r[key]), fnum(r[lo_key]), fnum(r[hi_key])
+            real = x == "real"
+            ref = x in rules
+            col = c["text"] if real else (c["muted"] if ref else c["text2"])
+            axis.plot([lo, hi], [ys[x]] * 2, color=col, lw=2.2 if real else 1.6, zorder=2)
+            axis.scatter([v], [ys[x]], s=64 if real else 40, marker="D" if ref else "o", color=col, zorder=3)
+        if rules:
+            axis.axhline(len(controls) - 0.5, color=c["grid"], lw=1, zorder=0)
+        axis.set_ylim(n_rows - 0.4, -0.6)
+        if xlim:
+            axis.set_xlim(*xlim)
+        axis.grid(axis="x", color=c["grid"], lw=0.6)
+        axis.set_axisbelow(True)
+        axis.tick_params(axis="y", length=0)
+        axis.spines["left"].set_visible(False)
+        axis.set_xlabel(xlabel)
+        axis.set_title(title)
+
+    def label(x):
+        t = CONTROL_LABEL.get(x, x)
+        r = d.row(d.summ, "all", x)
+        if r and real_n["rho"] and r["n_proteins"] != real_n["rho"]:
+            t += f"  (n = {r['n_proteins']})"
+        return t
+
+    band = d.null_band("all", "rho", "median")
+    band_s = d.null_band("all", "pct", "mean")
+    panel(ax, d.summ, "median_rho", "ci95_lo", "ci95_hi", band, "rho",
+          f"Median of per-protein Spearman \u03c1 values (not their average)\nEach \u03c1: x = {ERROR_NAME[d.em]}, y = {METRIC_LABEL[m]}, across candidates",
+          "A  Ranking agreement", 0.0)
+    panel(bx, d.sel, "mean_pick_pct", "ci95_lo", "ci95_hi", band_s, "pct",
+          "mean structural rank percentile of the picked candidate\n(0 = best, 0.5 = random pick, 1 = worst; lower = better)",
+          "B  Selection by lowest accessibility error", 0.5, xlim=(-0.02, 1.02))
+    ax.set_yticks(range(n_rows))
+    ax.set_yticklabels([label(x) for x in rows])
+    for tick, x in zip(ax.get_yticklabels(), rows):
+        tick.set_color(c["text"] if x == "real" else c["text2"])
+        tick.set_fontweight("bold" if x == "real" else "normal")
+    from matplotlib.lines import Line2D
+    ax.legend(handles=[Line2D([], [], color=c["band"], lw=8, label="shuffle null, 95 % range (dashed = its mean)"),
+                       Line2D([], [], marker="o", ls="", color=c["text2"], label="control"),
+                       Line2D([], [], marker="D", ls="", color=c["muted"], label="reference rule")],
+              loc="upper left", bbox_to_anchor=(-0.05, -0.32), fontsize=8.5, labelcolor=c["text2"], ncol=3)
+
+    rr, rs = d.row(d.summ, "all", "real"), d.row(d.sel, "all", "real")
+    lines = []
+    if rr and band:
+        t = f"Ranking: real median \u03c1 {fnum(rr['median_rho']):+.2f} against shuffle null {band[1]:+.2f} [{band[0]:+.2f}, {band[2]:+.2f}]"
+        if rr.get("p_median_vs_shuffle"):
+            t += f", p = {fnum(rr['p_median_vs_shuffle']):.4f}"
+        lines.append(t + f"  (n = {rr['n_proteins']} matched proteins).")
+    if rs and band_s:
+        t = f"Selection: real {fnum(rs['mean_pick_pct']):.2f} against shuffle null {band_s[1]:.2f} [{band_s[0]:.2f}, {band_s[2]:.2f}]"
+        if rs.get("p_mean_pct_vs_shuffle"):
+            t += f", p = {fnum(rs['p_mean_pct_vs_shuffle']):.4f}"
+        t += f"  (n = {rs['n_proteins']})."
+        if rs.get("frac_real_better_than_ranking"):
+            t += f"  Better than {d.rank_label} top-1 in {100 * fnum(rs['frac_real_better_than_ranking']):.0f} % of {rs['n_proteins_vs_ranking']} proteins (ties count half)."
+        lines.append(t)
+    lines.append("Controls alter SASA information or the residues used, not candidate structures or structural errors. Compare unshuffled SASA with the shuffle band.\n"
+                 "Proteins, not candidates, are the unit of the bootstrap and the null; n is shown only where a control has fewer proteins than `real`.")
+    fig.text(0.02, 0.01, "\n".join(lines), fontsize=8.5, color=c["text2"], ha="left", va="bottom", linespacing=1.5)
+    fig.suptitle(f"Does PDB-derived SASA help select accurate structures?  {ERROR_NAME[d.em]} vs {METRIC_LABEL[m]}", x=0.02, y=0.985,
+                 ha="left", fontsize=14, fontweight="bold", color=c["text"])
+    fig.text(0.02, 0.90, ERROR_EXPLANATION[d.em] + " Lower is better; scores are averaged over four probe radii.\n"
+             f"{d.settings.get('n_analysed', len(d.entries))} proteins. Reference = SASA computed from experimental PDB coordinates, NOT independently measured accessibility.\n"
+             f"For each protein: one point per candidate, x = {ERROR_NAME[d.em]}, y = {METRIC_LABEL[m]}; Spearman \u03c1 compares their rankings. Panel A shows the median \u03c1 across proteins.",
+             fontsize=9.5, color=c["text2"], ha="left", va="center", linespacing=1.5)
     return fig
 
 
@@ -340,6 +301,7 @@ def main():
     ap.add_argument("--out", default="figures_controls")
     ap.add_argument("--error-metric", nargs="+", help="mae and/or corr (default: those present)")
     ap.add_argument("--metric", default="rmsd_ca", choices=["rmsd_ca", "lddt_ca", "tm_score"], help="structural metric (RMSD is primary)")
+    ap.add_argument("--per-protein", action="store_true", help="also write the per-protein selection figure (off by default)")
     ap.add_argument("--theme", default="light", choices=list(THEMES))
     a = ap.parse_args()
     folder = Path(a.controls_dir)
@@ -353,11 +315,14 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     for em in ems:
         d = Data(folder, em, a.metric)
-        for fig, stem in ((overview(d, a, plt, c), f"controls_{em}_{a.metric}_overview"), (per_protein(d, a, plt, c), f"controls_{em}_{a.metric}_per_protein")):
+        figs = [(overview(d, a, plt, c), f"controls_{em}_{a.metric}_overview")]
+        if a.per_protein:
+            figs.append((per_protein(d, a, plt, c), f"controls_{em}_{a.metric}_per_protein"))
+        for fig, stem in figs:
             fig.savefig(out / f"{stem}.png", dpi=200, bbox_inches="tight", pad_inches=0.15)
             fig.savefig(out / f"{stem}.svg", bbox_inches="tight", pad_inches=0.15)
             plt.close(fig)
-        print(f"wrote {out}/controls_{em}_{a.metric}_overview.png|svg and controls_{em}_{a.metric}_per_protein.png|svg")
+        print(f"wrote {out}/" + " and ".join(f"{stem}.png|svg" for _, stem in figs))
 
 
 if __name__ == "__main__":
