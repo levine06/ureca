@@ -6,14 +6,16 @@ OpenFold3 is not modified.
 
 ## Model (`differentiable_accessibility.py`)
 
-```
-rho_i = sum_{j != i} sigmoid((r0 - d_ij) / tau)      neighbour density, (N, 3) -> (N,)
-a_i   = sigmoid((b - rho_i) / s)                      accessibility in (0, 1)
-loss  = mean_i (a_i - a_ref_i)^2
-```
+$$\rho_i = \sum_{j \ne i} \sigma\!\left(\frac{r_0 - d_{ij}}{\tau}\right) \qquad \text{neighbour density, } (N,3) \to (N,)$$
 
-`tau` is fixed at 1 A. `r0`, `b`, `s` were fitted (Adam on the MSE) on the 30 **development**
-proteins only: `r0 = 8.65 A`, `b = 9.02`, `s = 3.38` (`results/calibrated_params.json`).
+$$\hat a_i = \sigma\!\left(\frac{b - \rho_i}{s}\right) \qquad \text{accessibility in } (0,1)$$
+
+$$L_{\text{accessibility}} = \frac{1}{N}\sum_{i=1}^{N}\left(\hat a_i - a_i^{\text{ref}}\right)^2$$
+
+where $d_{ij}$ is the C-alpha distance between residues $i$ and $j$ and $\sigma$ is the sigmoid.
+
+$\tau$ is fixed at 1 Å. $r_0$, $b$, $s$ were fitted (Adam on the MSE) on the 30 **development**
+proteins only: $r_0 = 8.65$ Å, $b = 9.02$, $s = 3.38$ (`results/calibrated_params.json`).
 
 ## Validation (`validate_accessibility.py`)
 
@@ -47,7 +49,7 @@ under a random rotation plus translation (max difference ~3e-6).
 
 Gradient descent (SGD, lr 5, 300 steps) on 1AYD chain A, residue 27 (the buried residue the model scores
 lowest): target accessibility 0.65, estimated accessibility rises **0.032 -> 0.650**. The residue moves
-~8 A, moving outward: its neighbours within `r0` drop from 16 to 5 and its distance from the chain centroid
+~8 A, moving outward: its neighbours within $r_0$ drop from 16 to 5 and its distance from the chain centroid
 grows from 6.1 to 12.5 A (the PCA arrow in the figure looks short because most of the move is out of that
 2D plane). Neighbours shift by up to ~1.5 A (RMSD 0.95 A over the chain). The result is not meant to be a
 realistic structure (no chain connectivity or clash terms), only a demonstration that the gradient works.
@@ -55,8 +57,8 @@ Outputs: `results/gradient_test.csv`, `plots/gradient_test.png`.
 
 ## Differences from the slide formulation
 
-The Stage 5 slide sketches a Gaussian kernel, `D_i = sum_j exp(-d_ij^2 / 2 sigma^2)`, `A_i = exp(-D_i)`. This
-implementation uses the sigmoid form from the Stage 5 brief (`sigmoid((r0 - d) / tau)`), which has a tunable
+The Stage 5 slide sketches a Gaussian kernel, $D_i = \sum_j \exp(-d_{ij}^2 / 2\sigma^2)$, $A_i = e^{-D_i}$. This
+implementation uses the sigmoid form from the Stage 5 brief ($\sigma((r_0 - d)/\tau)$), which has a tunable
 cutoff radius and a bounded (0, 1) output. Both are smooth and differentiable; the Gaussian variant was not tried.
 
 ## Limitations
