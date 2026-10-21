@@ -1,0 +1,134 @@
+{
+ "created_utc": "2026-10-21T10:20:24+00:00",
+ "scaling": "z",
+ "grid": [
+  0.0,
+  0.1,
+  0.25,
+  0.5,
+  1.0,
+  2.0,
+  4.0
+ ],
+ "lambda": 0.1,
+ "select_on": "pct",
+ "select_splits": [
+  "validation"
+ ],
+ "one_se": true,
+ "n_selection_proteins": 15,
+ "n_tuned_proteins": 45,
+ "rank_column": "rank_score",
+ "rank_source": [
+  "accessibility table"
+ ],
+ "tie_rule": "ties for the best score are averaged; tolerance 1e-9 on the raw confidence for lambda = 0 (= the OpenFold baseline) and on S for lambda > 0",
+ "tie_tolerance": 1e-09,
+ "tolerance_A": 0.01,
+ "version": 1,
+ "supersedes": null,
+ "decision_rule": {
+  "requires": "lambda > 0, held-out mean RMSD change CI (95 %, bootstrap over proteins) upper bound < 0, and combined beats shuffled accessibility (protein-level null p < 0.05), both computed on the SAME matched held-out proteins",
+  "lambda_gt": 0.0,
+  "ci_upper_lt": 0.0,
+  "shuffle_p_lt": 0.05,
+  "primary_outcome": "mean over proteins of RMSD(combined choice) - RMSD(OpenFold choice), Angstrom"
+ },
+ "code_fingerprint": "a9ab1035eef71207aea4136fe082e6b78283725f",
+ "input_policy": {
+  "expect_candidates": 25,
+  "expect_counts": {
+   "development": 30,
+   "validation": 15,
+   "test_a": 20,
+   "test_b": 20
+  },
+  "allow_incomplete": false,
+  "min_candidates": 8,
+  "incomplete_problems_recorded": [],
+  "inputs": [
+   "candidate_scores.csv",
+   "structure_candidate_scores.csv"
+  ]
+ },
+ "tuned_rows_fingerprint": "e3ef7c3d57964a4aab9b43c4418fc89f33f1cba2",
+ "curve": {
+  "development": {
+   "0.0": {
+    "pct": 0.0,
+    "rmsd": 0.0,
+    "n": 30
+   },
+   "0.1": {
+    "pct": 0.03333333333333333,
+    "rmsd": 0.03347075910225821,
+    "n": 30
+   },
+   "0.25": {
+    "pct": -0.025000000000000005,
+    "rmsd": -0.0020871627445673965,
+    "n": 30
+   },
+   "0.5": {
+    "pct": -0.08333333333333334,
+    "rmsd": -0.1571840934083417,
+    "n": 30
+   },
+   "1.0": {
+    "pct": -0.175,
+    "rmsd": -0.2831354872424969,
+    "n": 30
+   },
+   "2.0": {
+    "pct": -0.19166666666666668,
+    "rmsd": -0.5929403840652309,
+    "n": 30
+   },
+   "4.0": {
+    "pct": -0.2152777777777778,
+    "rmsd": -0.5908953813794178,
+    "n": 30
+   }
+  },
+  "validation": {
+   "0.0": {
+    "pct": 0.0,
+    "rmsd": 0.0,
+    "n": 15
+   },
+   "0.1": {
+    "pct": -0.047222222222222235,
+    "rmsd": -0.008388278634258206,
+    "n": 15
+   },
+   "0.25": {
+    "pct": -0.05833333333333334,
+    "rmsd": -0.008315173708641465,
+    "n": 15
+   },
+   "0.5": {
+    "pct": -0.05555555555555556,
+    "rmsd": -0.011622260745158656,
+    "n": 15
+   },
+   "1.0": {
+    "pct": -0.11111111111111112,
+    "rmsd": -0.050829064586679434,
+    "n": 15
+   },
+   "2.0": {
+    "pct": -0.10833333333333334,
+    "rmsd": -0.051465842103474976,
+    "n": 15
+   },
+   "4.0": {
+    "pct": -0.11944444444444446,
+    "rmsd": 0.05439656211092327,
+    "n": 15
+   }
+  }
+ },
+ "heldout_entries_not_read": 40,
+ "disclosure": "Test A and Test B were inspected in Stage 3 (per-protein correlations, controls and selection plots of accessibility error against structural error). No reranking result on them was seen and no lambda was tuned on them. The scaling, grid, lambda and decision rule are frozen here; the held-out splits are evaluated with `evaluate`, and every evaluation is logged.",
+ "frozen_hash": "ba55e5baaf0576b9fa438c1be178d79c008fc562"
+}

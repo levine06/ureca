@@ -11,3 +11,24 @@ reference_structures/
 stage3/candidate_generation/candidates/
 stage3/candidate_generation/work/
 stage3/candidate_generation/logs/
+
+# Stage 4: curated results only; retain full working outputs locally.
+!/stage4/results/
+/stage4/results/*
+!/stage4/results/rerank_per_protein.csv
+!/stage4/results/rerank_summary.csv
+!/stage4/results/outcome_analysis.csv
+!/stage4/results/frozen_rule.json
+/stage4/runs/
+/stage4/logs/
+/stage4/tests/
+/stage4/test_*.py
+/stage4/**/test_*.py
+/stage4/**/*.svg
+/stage4/**/*.npz
+/stage4/**/*.zip
+/stage4/**/evaluation_log.json
+/stage4/**/lambda_curve.csv
+/stage4/**/outcome_per_protein.csv
+/stage4/**/README_stage4.md
+/stage4/**/README_outcomes.md
