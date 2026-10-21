@@ -85,9 +85,11 @@ if __name__ == "__main__":
     grid = np.linspace(0, 1, 200)
 
     # Scatter (reference vs estimate) with marginal densities; both splits overlaid
-    fig = plt.figure(figsize=(6.5, 6.5))
-    gs = fig.add_gridspec(2, 2, width_ratios=(4, 1), height_ratios=(1, 4), hspace=0.05, wspace=0.05)
+    fig = plt.figure(figsize=(11, 6.5))
+    outer = fig.add_gridspec(1, 2, width_ratios=(3, 1.3), wspace=0.3)
+    gs = outer[0].subgridspec(2, 2, width_ratios=(4, 1), height_ratios=(1, 4), hspace=0.05, wspace=0.05)
     ax, top, right = fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[1, 1])
+    box = fig.add_subplot(outer[1])
     for k, s in enumerate(splits):
         ref_v, est_v = pool[s][1], pool[s][0]
         ax.scatter(ref_v, est_v, s=3, alpha=0.25 if k == 0 else 0.35, color=f"C{k}", rasterized=True,
@@ -101,6 +103,14 @@ if __name__ == "__main__":
     right.set(ylim=(0, 1))
     for a in (top, right):
         a.axis("off")
+    # Per-protein Pearson r: is the agreement consistent across proteins (each protein counts once)?
+    per_protein = [df[df.split == s].pearson.values for s in splits]
+    box.boxplot(per_protein, tick_labels=[f"{s}\n({len(v)} proteins)" for s, v in zip(splits, per_protein)], widths=0.5,
+                showfliers=False)
+    rng = np.random.default_rng(0)
+    for k, v in enumerate(per_protein):
+        box.scatter(k + 1 + rng.uniform(-0.12, 0.12, len(v)), v, s=14, color=f"C{k}", zorder=3)
+    box.set(ylabel="per-protein Pearson r", title="Consistency across proteins")
     fig.savefig(OUT / "plots/accessibility_comparison.png", dpi=200, bbox_inches="tight")
 
     # Buried/exposed confusion matrices (pooled residues, row-normalised) per split
