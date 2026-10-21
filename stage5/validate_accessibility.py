@@ -78,24 +78,42 @@ if __name__ == "__main__":
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(1, 2, figsize=(10, 4.5))
-    for e, s in zip(summary.entry, summary.split):
-        if s != "validation":
-            continue
-        ax[0].scatter(est[e][1], est[e][0], s=3, alpha=0.3, color="C0")
-    ax[0].plot([0, 1], [0, 1], "k--", lw=1)
-    ax[0].set(xlabel="conventional relative SASA", ylabel="differentiable accessibility", title="Validation residues (all proteins)")
-    ax[1].boxplot([df[df.split == s].pearson for s in ("development", "validation")], tick_labels=["development", "validation"])
-    ax[1].set(ylabel="per-protein Pearson r", title="Agreement per protein")
-    fig.tight_layout()
-    fig.savefig(OUT / "plots/accessibility_comparison.png", dpi=150)
+    from scipy.stats import gaussian_kde
 
-    fig, ax = plt.subplots(figsize=(5, 4))
-    for k, col in enumerate(["accuracy", "balanced_accuracy"]):
-        ax.bar(np.arange(2) + (k - 0.5) * 0.4, [df[df.split == s][col].mean() for s in ("development", "validation")], 0.4,
-               label=col.replace("_", " "), color=f"C{k}")
-    ax.set(xticks=[0, 1], xticklabels=["development", "validation"], ylabel="mean over proteins", ylim=(0, 1),
-           title="Buried/exposed (rel. SASA < 0.2)")
-    ax.legend(loc="lower right")
-    fig.tight_layout()
-    fig.savefig(OUT / "plots/buried_exposed_accuracy.png", dpi=150)
+    splits = ("development", "validation")
+    pool = {s: [np.concatenate(v) for v in zip(*(est[e] for e in summary.entry[summary.split == s]))] for s in splits}
+    grid = np.linspace(0, 1, 200)
+
+    # Scatter (reference vs estimate) with marginal densities; both splits overlaid
+    fig = plt.figure(figsize=(6.5, 6.5))
+    gs = fig.add_gridspec(2, 2, width_ratios=(4, 1), height_ratios=(1, 4), hspace=0.05, wspace=0.05)
+    ax, top, right = fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[1, 1])
+    for k, s in enumerate(splits):
+        ref_v, est_v = pool[s][1], pool[s][0]
+        ax.scatter(ref_v, est_v, s=3, alpha=0.25 if k == 0 else 0.35, color=f"C{k}", rasterized=True,
+                   label=f"{s} (n={len(ref_v)}, R={pearsonr(est_v, ref_v)[0]:.2f})")
+        top.fill_between(grid, gaussian_kde(ref_v)(grid), alpha=0.35, color=f"C{k}")
+        right.fill_betweenx(grid, gaussian_kde(est_v)(grid), alpha=0.35, color=f"C{k}")
+    ax.plot([0, 1], [0, 1], "k", lw=1)
+    ax.set(xlim=(0, 1), ylim=(0, 1), xlabel="conventional relative SASA (Stage 3)", ylabel="differentiable accessibility")
+    ax.legend(loc="upper left", markerscale=4, frameon=False)
+    top.set(xlim=(0, 1), title="Relative accessibility")
+    right.set(ylim=(0, 1))
+    for a in (top, right):
+        a.axis("off")
+    fig.savefig(OUT / "plots/accessibility_comparison.png", dpi=200, bbox_inches="tight")
+
+    # Buried/exposed confusion matrices (pooled residues, row-normalised) per split
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.5), sharey=True, gridspec_kw=dict(wspace=0.12))
+    for a, s in zip(axes, splits):
+        ref_v, est_v = pool[s][1] < BURIED, pool[s][0] < BURIED
+        cm = np.array([[(~ref_v & ~est_v).sum(), (~ref_v & est_v).sum()], [(ref_v & ~est_v).sum(), (ref_v & est_v).sum()]])
+        im = a.imshow(cm / cm.sum(1, keepdims=True), cmap="Blues", vmin=0, vmax=1)
+        for (r, c), v in np.ndenumerate(cm):
+            a.text(c, r, f"{v}\n({v / cm[r].sum():.0%})", ha="center", va="center", color="white" if r == c else "black")
+        a.set(xticks=[0, 1], yticks=[0, 1], xticklabels=["exposed", "buried"], yticklabels=["exposed", "buried"],
+              xlabel="predicted (differentiable)",
+              title=f"{s}\naccuracy {np.trace(cm) / cm.sum():.2f}, balanced {np.mean(np.diag(cm) / cm.sum(1)):.2f}")
+    axes[0].set_ylabel("conventional SASA")
+    fig.colorbar(im, ax=axes, fraction=0.025, label="fraction of true class")
+    fig.savefig(OUT / "plots/buried_exposed_accuracy.png", dpi=200, bbox_inches="tight")
