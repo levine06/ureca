@@ -261,7 +261,7 @@ def figure1(rows, stats, by, a, plt, c):
     summary = summarise(stats, a, splits)
     bt = bin_table(by, in_sum)
     fig = plt.figure(figsize=(13.0, 5.6))
-    gs = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.15], wspace=0.30, left=0.07, right=0.98, top=0.74, bottom=0.30)
+    gs = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.15], wspace=0.30, left=0.07, right=0.98, top=0.80, bottom=0.25)
 
     # --- A: structural rank by accessibility-rank group, one value per protein and group
     ax = fig.add_subplot(gs[0])
@@ -279,11 +279,11 @@ def figure1(rows, stats, by, a, plt, c):
     ax.set_xticks(range(1, N_BINS + 1))
     ax.set_xticklabels(["1\nclosest", "2", "3", "4", "5\nfurthest"])
     ax.set_ylim(-0.02, 1.02)
-    ax.set_xlabel("Candidate group by error against PDB-derived reference SASA\n(within each protein: 1 = lowest error, 5 = highest error)")
-    ax.set_ylabel("Structural rank percentile within protein\n(0 = most accurate candidate, 1 = least)")
+    ax.set_xlabel("Candidate group by SASA error\n(within each protein)")
+    ax.set_ylabel("Structural rank percentile within protein\n(0 = most accurate)")
     ax.grid(axis="y", color=c["grid"], lw=0.6, zorder=0)
     ax.set_axisbelow(True)
-    ax.set_title("A  Does closer SASA agreement mean better structural rank?")
+    ax.set_title("A  Structural rank by SASA-error group")
     med = [np.median(v) if v else np.nan for v in data]
 
     # --- B: per-protein rho, one row per split
@@ -304,13 +304,17 @@ def figure1(rows, stats, by, a, plt, c):
     bx.set_yticklabels([f"{lab}  (n = {summary[('main', key)][0]})" for key, lab in rows_b])
     bx.set_ylim(len(rows_b) - 0.45, -0.7)
     bx.set_xlim(-1.02, 1.02)
-    bx.set_xlabel(f"Per-protein Spearman \u03c1 across candidate predictions\nUnderlying x = accessibility error; underlying y = {YSHORT[a.y]}")
+    bx.set_xlabel("Per-protein Spearman \u03c1")
     bx.grid(axis="x", color=c["grid"], lw=0.6, zorder=0)
     bx.set_axisbelow(True)
     bx.tick_params(axis="y", length=0)
     bx.spines["left"].set_visible(False)
-    bx.set_title("B  Per-protein correlation")
+    bx.set_title("B  Per-protein Spearman \u03c1")
 
+    from matplotlib.lines import Line2D
+    fig.legend(handles=[Line2D([], [], marker="o", ls="", color=colour_of(sp, c), label=SPLIT_LABELS.get(sp, sp)) for sp in splits if sp],
+               loc="lower right", bbox_to_anchor=(0.98, 0.075), ncol=len(splits), fontsize=9, labelcolor=c["text2"], frameon=False)
+    ax.text(1.5, 0.51, "chance", color=c["muted"], fontsize=8, va="bottom", ha="center")
     n, medr, lo, hi, npos = summary[("main", "all")]
     diffs = []
     for e in ents:
@@ -322,15 +326,11 @@ def figure1(rows, stats, by, a, plt, c):
     unit = " \u00c5" if a.y == "rmsd_ca" else ""
     fig.text(0.07, 0.03,
              f"Median \u03c1 {medr:+.2f} [95 % CI {lo:+.2f}, {hi:+.2f}]; \u03c1 > 0 in {npos} of {n} proteins.   "
-             f"Median structural rank percentile: group 1 {med[0]:.2f}, group 5 {med[-1]:.2f} (0.5 = expected average rank under unrelated rankings).\n"
-             f"Raw size of the effect: group 5 minus group 1 mean {YSHORT[a.y]}, median over {len(diffs)} proteins {dmed:+.3g}{unit} [{dlo:+.3g}, {dhi:+.3g}].\n"
-             "A: each dot is one protein/group mean. B: each dot is one protein's \u03c1; tick = median \u03c1 (not average), bar = 95% bootstrap interval. Colour = dataset.",
+             f"Group 5 minus group 1 mean {YSHORT[a.y]}: {dmed:+.3g}{unit} [{dlo:+.3g}, {dhi:+.3g}].",
              fontsize=9, color=c["text2"], ha="left", va="bottom", linespacing=1.5)
     fig.suptitle("Do candidates with lower accessibility error tend to be structurally more accurate?",
                  x=0.07, y=0.985, ha="left", fontsize=14, fontweight="bold", color=c["text"])
-    fig.text(0.07, 0.885, f"{len(rows)} candidates, {len(stats)} proteins. Accessibility error {SHORT_X[a.x].replace('accessibility error ', '')}: candidate relative SASA vs reference relative SASA.\n"
-             f"Reference = SASA computed from experimental PDB coordinates, NOT independently measured accessibility. Structural error = {YSHORT[a.y]} against the PDB structure.\n"
-             f"Each protein's \u03c1 uses one point per candidate: x = {SHORT_X[a.x]}, y = {YSHORT[a.y]}; Spearman compares the two candidate rankings.",
+    fig.text(0.07, 0.885, f"{len(rows)} candidates, {len(stats)} proteins. x = accessibility error ({SHORT_X[a.x].split('(')[-1].rstrip(')')}) vs PDB-derived SASA; y = {YSHORT[a.y]} vs PDB structure.",
              fontsize=9.5, color=c["text2"], ha="left", va="center", linespacing=1.5)
     return fig, bt
 

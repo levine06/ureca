@@ -43,16 +43,16 @@ THEMES = {
                  dev="#3987e5", val="#d95926", test_a="#51c993", test_b="#d78bd0"),
 }
 CONTROL_ORDER = ["real", "shuffle", "reverse", "other_protein", "dropout:0.5", "dropout:0.2", "binary:0.2", "binary:median"]
-CONTROL_LABEL = {"real": "Unshuffled PDB-derived SASA", "shuffle": "shuffle (residue values permuted)", "reverse": "reverse along the sequence",
-                 "other_protein": "another protein's profile", "dropout:0.5": "keep 50 % of residues", "dropout:0.2": "keep 20 % of residues",
-                 "binary:0.2": "buried / exposed (threshold 0.2)", "binary:median": "buried / exposed (median split)",
-                 "random": "random pick (reference)", "oracle": "oracle: best candidate (reference)",
-                 "ranking_top1": "supplied ranking: top-ranked (reference)"}
+CONTROL_LABEL = {"real": "Unshuffled PDB-derived SASA", "shuffle": "shuffled residues", "reverse": "reversed sequence",
+                 "other_protein": "other protein's profile", "dropout:0.5": "keep 50 % of residues", "dropout:0.2": "keep 20 % of residues",
+                 "binary:0.2": "buried / exposed (0.2)", "binary:median": "buried / exposed (median)",
+                 "random": "random pick", "oracle": "oracle: best candidate",
+                 "ranking_top1": "supplied ranking: top-ranked"}
 ERR_LABEL = {"mae": "mean absolute error of relative accessibility", "corr": "1 − correlation of the accessibility profiles"}
 ERROR_NAME = {"mae": "MAE", "corr": "1 − r"}
 ERROR_EXPLANATION = {
-    "mae": "MAE compares relative SASA calculated from each candidate with relative SASA calculated from the experimental PDB structure.",
-    "corr": "r = Pearson correlation across residues: candidate relative SASA versus PDB-derived reference relative SASA. Error = 1 - r.",
+    "mae": "Error = MAE of relative SASA vs PDB-derived reference.",
+    "corr": "Error = 1 \u2212 r (Pearson correlation of relative SASA vs PDB-derived reference).",
 }
 PICK_RULE = {"mae": "lowest MAE", "corr": "lowest 1 − r"}
 METRIC_LABEL = {"rmsd_ca": "Cα RMSD", "lddt_ca": "1 − lDDT-Cα", "tm_score": "1 − TM-score"}
@@ -164,8 +164,8 @@ def overview(d, a, plt, c):
     rules = [x for x in ("ranking_top1", "random", "oracle") if d.row(d.sel, "all", x)]
     rows = controls + rules
     n_rows = len(rows)
-    fig, (ax, bx) = plt.subplots(1, 2, figsize=(13.0, 0.52 * n_rows + 3.6), sharey=True,
-                                 gridspec_kw=dict(wspace=0.06, left=0.25, right=0.985, top=0.79, bottom=0.28))
+    fig, (ax, bx) = plt.subplots(1, 2, figsize=(13.0, 0.52 * n_rows + 2.9), sharey=True,
+                                 gridspec_kw=dict(wspace=0.06, left=0.25, right=0.985, top=0.79, bottom=0.20))
     ys = {x: i for i, x in enumerate(rows)}
     real_n = {"rho": (d.row(d.summ, "all", "real") or {}).get("n_proteins"), "pct": (d.row(d.sel, "all", "real") or {}).get("n_proteins")}
 
@@ -206,10 +206,10 @@ def overview(d, a, plt, c):
     band = d.null_band("all", "rho", "median")
     band_s = d.null_band("all", "pct", "mean")
     panel(ax, d.summ, "median_rho", "ci95_lo", "ci95_hi", band, "rho",
-          f"Median of per-protein Spearman \u03c1 values (not their average)\nEach \u03c1: x = {ERROR_NAME[d.em]}, y = {METRIC_LABEL[m]}, across candidates",
+          "Median per-protein Spearman \u03c1",
           "A  Ranking agreement", 0.0)
     panel(bx, d.sel, "mean_pick_pct", "ci95_lo", "ci95_hi", band_s, "pct",
-          "mean structural rank percentile of the picked candidate\n(0 = best, 0.5 = random pick, 1 = worst; lower = better)",
+          "Mean rank percentile of picked candidate\n(lower = better)",
           "B  Selection by lowest accessibility error", 0.5, xlim=(-0.02, 1.02))
     ax.set_yticks(range(n_rows))
     ax.set_yticklabels([label(x) for x in rows])
@@ -218,9 +218,8 @@ def overview(d, a, plt, c):
         tick.set_fontweight("bold" if x == "real" else "normal")
     from matplotlib.lines import Line2D
     ax.legend(handles=[Line2D([], [], color=c["band"], lw=8, label="shuffle null, 95 % range (dashed = its mean)"),
-                       Line2D([], [], marker="o", ls="", color=c["text2"], label="control"),
                        Line2D([], [], marker="D", ls="", color=c["muted"], label="reference rule")],
-              loc="upper left", bbox_to_anchor=(-0.05, -0.32), fontsize=8.5, labelcolor=c["text2"], ncol=3)
+              loc="upper left", bbox_to_anchor=(0.0, -0.30), fontsize=8.5, labelcolor=c["text2"], ncol=3)
 
     rr, rs = d.row(d.summ, "all", "real"), d.row(d.sel, "all", "real")
     lines = []
@@ -234,17 +233,11 @@ def overview(d, a, plt, c):
         if rs.get("p_mean_pct_vs_shuffle"):
             t += f", p = {fnum(rs['p_mean_pct_vs_shuffle']):.4f}"
         t += f"  (n = {rs['n_proteins']})."
-        if rs.get("frac_real_better_than_ranking"):
-            t += f"  Better than {d.rank_label} top-1 in {100 * fnum(rs['frac_real_better_than_ranking']):.0f} % of {rs['n_proteins_vs_ranking']} proteins (ties count half)."
         lines.append(t)
-    lines.append("Controls alter SASA information or the residues used, not candidate structures or structural errors. Compare unshuffled SASA with the shuffle band.\n"
-                 "Proteins, not candidates, are the unit of the bootstrap and the null; n is shown only where a control has fewer proteins than `real`.")
     fig.text(0.02, 0.01, "\n".join(lines), fontsize=8.5, color=c["text2"], ha="left", va="bottom", linespacing=1.5)
     fig.suptitle(f"Does PDB-derived SASA help select accurate structures?  {ERROR_NAME[d.em]} vs {METRIC_LABEL[m]}", x=0.02, y=0.985,
                  ha="left", fontsize=14, fontweight="bold", color=c["text"])
-    fig.text(0.02, 0.90, ERROR_EXPLANATION[d.em] + " Lower is better; scores are averaged over four probe radii.\n"
-             f"{d.settings.get('n_analysed', len(d.entries))} proteins. Reference = SASA computed from experimental PDB coordinates, NOT independently measured accessibility.\n"
-             f"For each protein: one point per candidate, x = {ERROR_NAME[d.em]}, y = {METRIC_LABEL[m]}; Spearman \u03c1 compares their rankings. Panel A shows the median \u03c1 across proteins.",
+    fig.text(0.02, 0.905, ERROR_EXPLANATION[d.em] + f"  {d.settings.get('n_analysed', len(d.entries))} proteins; y = {METRIC_LABEL[m]}.",
              fontsize=9.5, color=c["text2"], ha="left", va="center", linespacing=1.5)
     return fig
 

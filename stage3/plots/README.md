@@ -4,28 +4,49 @@
 
 All figures combine 2,125 candidates from 85 proteins: development (30 proteins, blue), validation (15, orange), Test A (20, green) and Test B (20, purple). Each protein has 25 candidates. No RMSD-range threshold separates the proteins.
 
+| Figure | Question | Headline |
+|---|---|---|
+| `accessibility_vs_accuracy/fig1_accessibility_vs_accuracy.png` | Do low-MAE candidates rank better structurally? | Group 1 median structural-rank percentile 0.33 vs group 5 0.64; median per-protein rho +0.31 |
+| `controls/controls_mae_rmsd_ca_overview.png` | Does the signal survive controls, and does picking the lowest MAE help? | Real rho +0.31; selected percentile 0.35 vs 0.51 under shuffling |
+| `controls/controls_corr_rmsd_ca_overview.png` | Same, with `1 - r` as the accessibility error | Real rho +0.29; selected percentile 0.39 vs 0.51 under shuffling |
+
 ## Measures
 
-- **Accessibility MAE:** mean absolute difference between candidate and reference relative accessibility, averaged over four probe radii; lower is better.
-- **Accessibility 1 - r:** one minus the Pearson correlation between candidate and reference residue profiles, averaged over probe radii; lower means closer exposure patterns.
+- **Reference accessibility:** relative SASA computed from the experimental PDB coordinates, **not** independently measured accessibility. The plots no longer repeat this, so keep it in mind when reading them.
+- **Accessibility MAE:** mean absolute difference between candidate and reference relative accessibility, averaged over four probe radii; lower is better. It reflects the actual SASA values, so a constant offset counts as error.
+- **Accessibility 1 - r:** one minus the Pearson correlation between candidate and reference residue profiles, averaged over probe radii; lower means closer exposure patterns. It ignores offset and scale, so it can disagree with MAE about which candidate is closer.
 - **Structural error:** C-alpha RMSD against the experimental structure, in angstroms; lower is better.
-- **Ranking agreement:** within each protein, Spearman rho between accessibility error and RMSD across its candidates. Positive rho supports the hypothesis. This is distinct from the residue-profile Pearson correlation used in `1 - r`.
+- **Structural rank percentile:** a candidate's rank by RMSD within its own protein, scaled so 0 = best candidate, 0.5 = middle, 1 = worst. It shows ordering, not RMSD differences in angstroms.
+- **Ranking agreement:** within each protein, Spearman rho between accessibility error and RMSD across its 25 candidates. Positive rho supports the hypothesis. This is distinct from the residue-profile Pearson correlation used in `1 - r`.
+- **Unit of analysis:** the protein. Candidates of one protein share a sequence and a reference, so bootstraps, nulls and medians are taken over proteins, not over the 2,125 candidates.
 
 ## Reading the Figures
 
-`accessibility_vs_accuracy/fig1_accessibility_vs_accuracy.png` answers the main question in two panels:
+### Fig 1
 
-- **Panel A:** within each protein, group candidates from lowest to highest accessibility error into five rank groups. Each dot is that protein/group's mean structural-rank percentile; the boxes summarise proteins. Lower is better (0 = best candidate, 1 = worst); 0.5 is the expected average under unrelated rankings. In this dataset every group contains five candidates; average-rank ties can make group sizes unequal in future datasets.
-- **Panel B:** each dot is one protein's Spearman rho, grouped by dataset. For each protein, the underlying candidate-level x is accessibility error and y is C-alpha RMSD. The tick is the median rho across proteins, not their average; the bar is its 95% bootstrap interval. Each protein appears in both the all-protein row and its dataset row.
-- The caption's raw effect size is the median, across proteins, of group 5 mean RMSD minus group 1 mean RMSD. Its positive value (+0.0624 angstroms) supports the expected direction but indicates a small typical absolute difference; it is not a top-1 gain over OpenFold.
+- **Panel A:** within each protein, sort the 25 candidates by accessibility error and split them into five groups of five (group 1 = closest to the reference, group 5 = furthest). Each dot is that protein/group's mean structural-rank percentile; the boxes summarise the 85 proteins and the black line is the median. The dashed line at 0.5 is chance (unrelated rankings). Average-rank ties can make group sizes unequal in future datasets.
+- **Panel B:** each dot is one protein's Spearman rho, grouped by dataset; each protein appears in the all-protein row and in its dataset row. The tick is the median rho across proteins, not their average; the bar is its 95% bootstrap interval, which describes uncertainty in the median, not the spread of individual proteins.
+- **Footer:** median rho +0.31 [95% CI +0.26, +0.41], positive in 67 of 85 proteins. The raw effect is the median, across proteins, of group 5 mean RMSD minus group 1 mean RMSD: +0.0624 angstroms [+0.0367, +0.0985]. It supports the expected direction but is a small typical absolute difference, and it is not a top-1 gain over OpenFold.
 
-`controls/` contains two figures: `controls_mae_rmsd_ca_overview.png` and `controls_corr_rmsd_ca_overview.png`. Reference means relative SASA computed from experimental PDB coordinates, not independently measured accessibility. Pearson r compares candidate and reference SASA across residues; `1 - r` is an accessibility error, not a correlation with RMSD.
+### Controls
 
-- **Panel A, ranking agreement:** one rho per protein, correlating accessibility error (MAE or `1 - r`) with RMSD across its 25 candidates; dots show the median of these rhos. Positive is the expected direction. Horizontal lines are 95% bootstrap intervals over proteins. The three selection-only reference rows are blank here because they do not define an accessibility error across candidates.
-- **Panel B, selection:** choose the lowest-accessibility-error candidate for each protein, then average its structural-rank percentile across proteins. Lower is better: 0 = best available candidate, 1 = worst, 0.5 = expected random rank. The supplied ranking selects OpenFold's top-ranked candidate; the oracle selects the lowest actual RMSD using the known PDB structure.
-- In both panels the grey band is the 95% shuffle-null range of the aggregate statistic, not a bootstrap interval; the dashed line is its mean. Compare unshuffled SASA against this null. Ranks show ordering, not RMSD differences in angstroms.
+Each control figure has the same rows in two aligned panels, with Spearman rho and selection computed as above.
 
-Shuffling/reversal/wrong-protein profiles disrupt positional information. Keeping fewer residues tests sparsity. Buried/exposed controls test whether coarse labels retain useful information instead of needing precise accessibility values. All aggregate summaries remain pooled across datasets; colours alone do not establish a separate test-set result.
+- **Panel A, ranking agreement:** dots are the median of the per-protein rhos; horizontal lines are 95% bootstrap intervals over proteins. The three reference rows at the bottom are blank here because they do not define an accessibility error across candidates.
+- **Panel B, selection:** choose the lowest-accessibility-error candidate for each protein, then average its structural-rank percentile across proteins. Lower is better; 0.5 is a random pick.
+- **Grey band:** the 95% shuffle-null range of the aggregate statistic; the dashed line is its mean. It is not a bootstrap interval. Compare unshuffled SASA against this band, not against 0 or 0.5.
+
+| Row | What changes | Why it is included |
+|---|---|---|
+| Unshuffled PDB-derived SASA | nothing | main condition |
+| Shuffled residues | residue values permuted | breaks the residue-to-exposure mapping |
+| Reversed sequence | profile reversed along the sequence | breaks positional correspondence but keeps the values |
+| Other protein's profile | another protein's profile substituted | tests target specificity |
+| Keep 50% / 20% of residues | fewer residues scored | tests sparse coverage |
+| Buried / exposed (0.2, median) | profile reduced to two labels | tests whether coarse labels are enough |
+| Supplied ranking, random pick, oracle | selection rules, not SASA controls | OpenFold's top-ranked candidate; a random candidate (about 0.5); the lowest actual RMSD, using the known PDB structure (0 by construction) |
+
+The controls change the accessibility information or the residues used, not the candidate structures or their structural errors. All aggregate summaries remain pooled across datasets; colours alone do not establish a separate test-set result.
 
 ## Results and Interpretation
 
@@ -37,9 +58,16 @@ Shuffling/reversal/wrong-protein profiles disrupt positional information. Keepin
 | Shuffle mean selection percentile | 0.51 | 0.51 |
 | Win rate versus OpenFold top-ranked, ties count half | 68% | 59% |
 
-Real-versus-shuffle comparisons give p = 0.0001 for ranking agreement with either error, and p = 0.0001 / 0.0003 for MAE / 1 - r selection, as reported by the run. These are aggregate shuffle comparisons, not tests of superiority over OpenFold. The MAE scatter analysis has median rho +0.307 (95% bootstrap interval +0.262 to +0.410), with positive rho in 67 of 85 proteins.
+Real-versus-shuffle comparisons give p = 0.0001 for ranking agreement with either error, and p = 0.0001 / 0.0003 for MAE / 1 - r selection, as reported by the run. These are aggregate shuffle comparisons, not tests of superiority over OpenFold, and not a test of MAE against `1 - r`; the MAE advantage is descriptive only (+0.02 rho, -0.04 percentile) and would need a paired protein-level comparison. The win rates and the supplied-ranking row are no longer printed on the plots.
 
-**Answer:** the results support position-specific accessibility as a useful candidate-ranking signal, with exceptions and modest aggregate effects. Reference accessibility is calculated from the experimental structure: this is a best-case information-content check, not proof that measured accessibility or accessibility-guided diffusion will improve predictions.
+**Answer:** the results support position-specific accessibility as a useful candidate-ranking signal, with exceptions and modest aggregate effects. Shuffled, reversed and wrong-protein profiles fall to about zero; keeping 20-50% of residues or using buried/exposed labels keeps a weaker positive signal.
+
+## Limitations
+
+- Reference accessibility is calculated from the experimental structure: this is a best-case information-content check, not proof that measured accessibility or accessibility-guided diffusion will improve predictions.
+- Median rho of about 0.3 means many within-protein orderings still disagree. A mean selected percentile of 0.35 is better than random but far from the oracle's 0.
+- The angstrom gain is small (+0.0624 A), and selecting an existing candidate is reranking, not generating better structures.
+- Development, validation and test sets are small; do not read dataset-level medians as separate generalisation results.
 
 ## Regenerate
 
