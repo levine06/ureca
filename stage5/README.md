@@ -55,6 +55,51 @@ grows from 6.1 to 12.5 A (the PCA arrow in the figure looks short because most o
 realistic structure (no chain connectivity or clash terms), only a demonstration that the gradient works.
 Outputs: `results/gradient_test.csv`, `plots/gradient_test.png` (see [plots/README.md](plots/README.md)).
 
+## Candidate and noise tests (`test_candidates_noise.py`)
+
+Question: is the estimate still useful on OpenFold candidates and on noisy coordinates, as in diffusion? Uses the
+45 development and validation proteins (1,125 candidates from Stage 3); the held-out test splits are not read.
+Outputs: `results/candidate_test.csv` (per protein), `results/noise_test.csv`, `plots/candidate_noise_test.png`.
+
+**Candidate test.** For each protein, the Spearman rho between a candidate's accessibility error (MAE against the
+reference relative SASA, probe 1.4 A) and its C-alpha RMSD over its 25 candidates; positive means lower accessibility
+error goes with lower RMSD. Median over proteins, 95% bootstrap interval over proteins:
+
+| Accessibility error | Median rho [95% CI] | Proteins with rho > 0 |
+| --- | --- | --- |
+| `accessfold` against reference (Stage 3 signal) | +0.28 [+0.15, +0.36] | 35/45 |
+| Differentiable estimate against reference | +0.25 [+0.13, +0.33] | 34/45 |
+| Differentiable estimate against its own native estimate | +0.43 [+0.29, +0.54] | 41/45 |
+| Differentiable, shuffled reference (control) | +0.02 [-0.06, +0.08] | 26/45 |
+
+On the same candidates, the estimate agrees with `accessfold` (mean Pearson 0.837, as on native structures).
+Selecting the candidate with the lowest error gives a median structural rank percentile (0 = best, 0.5 = chance) of
+0.54 for OpenFold's top-ranked candidate, 0.17 (mean 0.35) for `accessfold` and 0.42 (mean 0.43) for the differentiable
+estimate. The differentiable selector's gain over OpenFold (mean -0.08, 95% CI [-0.21, +0.04]) is not statistically
+clear, unlike `accessfold`'s (mean -0.16, [-0.28, -0.03]).
+
+**Noise test.** Independent Gaussian noise is added to the native C-alphas (as in diffusion; 5 draws per protein).
+Equivalent RMSD is sigma times sqrt(3). "Gradient cosine" is the cosine similarity between the loss gradient on the
+noisy coordinates and on the clean ones (loss against the reference):
+
+| Equivalent RMSD (A) | Pearson with reference | Pearson with clean estimate | Gradient cosine |
+| --- | --- | --- | --- |
+| 0 | 0.84 | 1.00 | 1.00 |
+| 0.9 | 0.82 | 0.97 | 0.92 |
+| 1.7 | 0.77 | 0.91 | 0.74 |
+| 3.5 | 0.64 | 0.75 | 0.43 |
+| 5.2 | 0.53 | 0.61 | 0.27 |
+| 13.9 | 0.24 | 0.27 | 0.06 |
+
+**Conclusion.** The Stage 3 accessibility-structure signal survives in the differentiable estimate, and the shuffled
+control is at zero. It is a weaker selector than `accessfold`, though. The gradient direction is reliable within about
+2 A of the native structure and mostly lost beyond 3-4 A, so Stage 6 guidance should act late in diffusion or on the
+denoised structure estimate, not on highly noisy samples.
+
+Caveats: candidates are close to the native structure (median RMSD range 0.67-1.00 A per protein), so the test says
+little about badly wrong structures; there are only 25 candidates per protein; candidates contain every sequence
+position, while the fit used resolved residues only.
+
 ## Limitations
 
 - C-alpha neighbour density ignores side-chain orientation, so it cannot reproduce exact SASA; it gives
@@ -62,13 +107,14 @@ Outputs: `results/gradient_test.csv`, `plots/gradient_test.png` (see [plots/READ
 - It is calibrated for probe radius 1.4 A only, and for compact single chains: larger probes (the Stage 2
   sensitivity radii) would need a separate fit.
 - Unresolved residues are absent from the coordinates and do not contribute neighbours.
+- The estimate degrades with coordinate noise (see the noise test), so it needs low-noise or denoised coordinates.
 - The optimiser moves atoms freely, so structures after descent are unphysical.
 - If this proves too coarse for Stage 6, the plan's optional step is a small neural network.
 
 ## Run
 
-Needs torch, numpy, scipy, pandas, matplotlib, scikit-learn; run from this folder.
+Needs torch, numpy, scipy, pandas, matplotlib, scikit-learn; run from this folder. `test_candidates_noise.py` also needs the Stage 3 candidates and scoring runs (`stage3/scoring/runs/dev_val`).
 
 ```bash
-python validate_accessibility.py && python test_gradients.py
+python validate_accessibility.py && python test_gradients.py && python test_candidates_noise.py
 ```

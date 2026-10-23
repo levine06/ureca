@@ -2,13 +2,14 @@
 
 **Question:** does a smooth, differentiable estimate built from C-alpha coordinates reproduce conventional SASA, and do its gradients move atoms the right way?
 
-Colours: development proteins (30, used to fit the three model parameters) are blue; validation proteins (15, never used in fitting) are orange. Regenerate with `validate_accessibility.py` (first two figures) and `test_gradients.py` (third).
+Colours: development proteins (30, used to fit the three model parameters) are blue; validation proteins (15, never used in fitting) are orange. Regenerate with `validate_accessibility.py` (first two figures) `test_gradients.py` (third) and `test_candidates_noise.py` (fourth).
 
 | Figure | Question | Headline |
 |---|---|---|
 | `accessibility_comparison.png` | Does the estimate track conventional SASA, and does it generalise? | Pooled Pearson R 0.84 on both splits; per-protein medians about 0.83-0.84 |
 | `buried_exposed_accuracy.png` | Can it separate buried from exposed residues? | Accuracy 0.83 (development) and 0.84 (validation) |
 | `gradient_test.png` | Do gradients make a buried residue more accessible? | Residue 27 estimate 0.03 to 0.65 |
+| `candidate_noise_test.png` | Does the signal survive on OpenFold candidates and under noise? | Median rho +0.25 vs +0.28 for `accessfold`; gradient reliable within about 2 A |
 
 ## Measures
 
@@ -44,3 +45,12 @@ Colours: development proteins (30, used to fit the three model parameters) are b
 - **Middle panel:** how far each residue's C-alpha moved, in angstroms. The red line marks the target residue; it moves about 8 A while its other residues shift by about 2 A or less, so the optimiser mainly moves the target out of its crowded pocket.
 - **Right panel:** the C-alpha trace projected onto its two main axes, grey before and red after. The arrow shows the target residue's move. This is only a 2D projection, so most of the 8 A move is out of the plane and the arrow looks short; the neighbour count (16 within `r0` before, 5 after) printed by `test_gradients.py` and the CSV in `results/gradient_test.csv` give the clearer evidence.
 - **Not meant to look realistic:** only C-alpha positions are optimised, with no bond-length or clash terms. The figure shows the gradient works, not that the result is a plausible protein.
+
+### candidate_noise_test.png
+
+![Candidate and noise test](candidate_noise_test.png)
+
+- **Panel A:** each dot is one protein's Spearman rho between accessibility error and C-alpha RMSD over its 25 candidates (positive means lower error goes with a better structure); box = middle half, orange line = median. Compare the first two boxes: the differentiable estimate (second) keeps almost all of the `accessfold` signal (first). The third box compares against the estimate's own native value, an upper bound for what C-alpha geometry can see. The fourth (shuffled reference, a control) sits around zero, so the signal is not an artifact.
+- **Panel B:** for each protein, the structural rank percentile of the candidate each rule picks (0 = best RMSD, dashed line 0.5 = chance). OpenFold's top-ranked candidate is near chance; lowest `accessfold` error is clearly better; lowest differentiable error is in between, and its gain over OpenFold is not statistically clear.
+- **Panel C:** Gaussian noise is added to the native C-alphas (x axis: equivalent RMSD in angstroms; points are means over proteins and bars are standard deviations). The blue curve is agreement with the reference accessibility, the orange curve agreement with the estimate on clean coordinates and the green curve how well the loss gradient still points the same way as on clean coordinates. The green curve falls fastest: the gradient is reliable up to about 2 A and mostly lost beyond 3-4 A.
+- **Limits:** candidates are close to the native structure (median RMSD range 0.67-1.00 A per protein), so Panels A and B say little about badly wrong structures.
