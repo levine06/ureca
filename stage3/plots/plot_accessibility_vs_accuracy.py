@@ -4,7 +4,7 @@
 For every candidate structure
     x = accessibility error against the experimental-structure reference   (candidate_scores.csv: ac_error = mean-over-radii absolute error;
                                                             ac_corr_error = 1 - profile correlation)
-    y = actual structural error against the experimental structure  (structure_candidate_scores.csv: rmsd_ca primary;
+    y = actual structural error against the experimental structure  (candidate_scores.csv: rmsd_ca primary;
                                                             1 - lddt_ca or 1 - tm_score as agreement checks)
 A useful accessibility measurement gives a rising relationship: candidates that agree better with the reference accessibility
 (small x) are structurally more accurate (small y). NOTE: the reference accessibility here is COMPUTED from the experimental
@@ -41,7 +41,7 @@ No p-value is drawn here: the shuffle/other-protein controls (run_controls.py) p
 
     python scripts/plot_accessibility_vs_accuracy.py --scores-dir scores_out --out figures
     python scripts/plot_accessibility_vs_accuracy.py --accessibility-csv candidate_scores.csv \\
-        --structure-csv structure_candidate_scores.csv --y rmsd_ca --x ac_corr_error --out figures
+        --structure-csv candidate_scores.csv --y rmsd_ca --x ac_corr_error --out figures
 Needs numpy, scipy, matplotlib.
 """
 from __future__ import annotations
@@ -375,7 +375,7 @@ def figure2(items, stats, a, plt, c, page, n_pages):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--scores-dir", help="score_candidates.py output folder (candidate_scores.csv + structure_candidate_scores.csv)")
+    ap.add_argument("--scores-dir", help="score_candidates.py output folder (candidate_scores.csv, holding both accessibility and structural scores)")
     ap.add_argument("--accessibility-csv", nargs="+", help="one or more accessibility score tables, combined before matching")
     ap.add_argument("--structure-csv", nargs="+", help="one or more structural score tables; a combined score table may be used on both sides")
     ap.add_argument("--x", default="ac_error", choices=["ac_error", "ac_corr_error", "ac_rmse"], help="accessibility error column")
@@ -394,7 +394,7 @@ def main():
     a = ap.parse_args()
 
     acc_csv = a.accessibility_csv or (Path(a.scores_dir) / "candidate_scores.csv" if a.scores_dir else None)
-    st_csv = a.structure_csv or (Path(a.scores_dir) / "structure_candidate_scores.csv" if a.scores_dir else None)
+    st_csv = a.structure_csv or (Path(a.scores_dir) / "candidate_scores.csv" if a.scores_dir else None)
     if not acc_csv or not st_csv:
         ap.error("give --scores-dir, or both --accessibility-csv and --structure-csv")
     rows, report = load(acc_csv, st_csv, a.x, a.y, a.strict)

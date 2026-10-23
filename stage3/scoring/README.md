@@ -16,7 +16,7 @@ The calculations live in the `accessfold` package in `truth_accessibility/src/ac
 |---|---|
 | `prepare_openfold3_outputs.py` | checks the OpenFold3 outputs against Stage 1 and writes `ranking.csv`; scores nothing |
 | `score_candidates.py` | computes the accessibility and structural errors for every candidate |
-| `results/development_validation/` | committed result tables for the 45 development and validation proteins (see [Results](#results)) |
+| `results/development_validation/` | committed result tables for the 45 development and validation proteins (see [Results](#results)); also holds the git-ignored per-residue table `accessibility_candidate_residues.csv.gz` |
 | `results/test/` | committed result tables for the 40 test proteins (see [Results](#results)) |
 | `runs/` | working output of each scoring run (per-protein `.npz` files and the tables the script writes); git-ignored |
 | `logs/` | PBS job logs; git-ignored |
@@ -29,8 +29,11 @@ The calculations live in the `accessfold` package in `truth_accessibility/src/ac
 **`score_candidates.py`** scores every candidate of every entry against the experimental structure and the saved truth file. It does the orchestration only; the calculations are in `accessfold`.
 - Structural accuracy: Cα RMSD (Å, lower is better), lDDT-Cα and TM-score (0 to 1, higher is better), plus the RMSD between every pair of candidates. Residues are paired by sequence position, so no alignment is needed.
 - Accessibility: candidate accessibility and its error against the truth profile on the truth-mask residues (MAE, RMSE and correlation error, per probe radius and averaged over radii).
-- Mode flags, mutually exclusive: `--structure-only`, `--accessibility-only`, or neither for both.
+- Mode flags, mutually exclusive: `--structure-only` (structural accuracy only), `--accessibility-only` (candidate accessibility and accessibility errors only), or neither for both. Use separate output folders for each mode.
+- `--verify-truth` checks the saved truth accessibility against the structure cache and cannot be combined with `--structure-only`. Keep `--workers` no larger than the allocated CPU count.
 - Optionally joins the model's own ranking (`--ranking-csv`) to fill the top-ranked columns.
+- Every accessibility run saves all four per-residue profiles at every probe radius as `abs_<r>`, `rel_<r>`, `sc_abs_<r>` and `sc_rel_<r>` (candidate, residue) in each entry NPZ. Absolute values are in A^2 and relative values are unitless; missing or excluded values are blank, and glycine side-chain values are undefined, not zero.
+- `candidate_scores.csv` holds MAE, RMSE, correlation error and valid-residue counts for each profile and radius. `--kind` selects only the headline comparison (`rel` by default), not which profiles are saved. Profiles use the matched experimental atom environment by default. Relative-only outputs from older runs must be rerun, because the current scoring schema prevents their reuse.
 
 ## Results
 
@@ -52,7 +55,7 @@ Both splits have the same two tables, from one combined run of `score_candidates
   - `rho_ac_vs_{rmsd,lddt,tm}` and `rho_accorr_vs_{rmsd,lddt,tm}`: the Spearman correlation, over the protein's 25 candidates, between the accessibility error and the structural error (RMSD, 1 − lDDT, 1 − TM-score). `ac` uses `ac_error` and `accorr` uses `ac_corr_error`. A positive value means candidates that match the experimental accessibility better also have a better structure.
   - `topN_unavailable_reason` is empty when the ranking is complete for the protein.
 
-Per-protein NPZ files (and a per-residue accessibility table) are written to the `runs/` folders and are not committed.
+Per-protein NPZ files are written to the `runs/` folders and are not committed. The development and validation per-residue accessibility table, `accessibility_candidate_residues.csv.gz`, is kept beside its result tables but is git-ignored.
 
 Three proteins were generated under a chain id other than `A`, so they are scored separately by pointing at their actual candidate folder and chain:
 
@@ -91,18 +94,3 @@ python stage3/scoring/score_candidates.py \
 - Re-running is safe. A result is reused only if the fingerprint of the candidate files, truth file, structure cache and settings still matches. `--shard i/n` splits the work and `--collect-only` rebuilds the tables.
 
 Outputs in `--out`: one `<entry>.npz` per protein, `candidate_scores.csv` (one row per candidate), `entry_summary.csv` (one row per entry) and `failures.csv`. See the docstring at the top of each script for the full list of options.
-
-Add `--accessibility-only` for candidate accessibility and accessibility errors,
-or `--structure-only` for structural accuracy. Without either flag the combined
-workflow is unchanged. Use separate output folders for each mode.
-
-Accessibility modes always save all four per-residue profiles at every probe
-radius: `abs_<r>`, `rel_<r>`, `sc_abs_<r>`, `sc_rel_<r>` in each entry NPZ
-(candidate, residue). Absolute values are in A^2; relative values are unitless.
-Missing or excluded values are blank; glycine side-chain values are undefined, not zero.
-
-`candidate_scores.csv` includes MAE, RMSE, correlation error and valid-residue
-counts for each profile/radius. `--kind` selects only the headline comparison
-(`rel` by default), not which profiles are saved. Profiles use the matched
-experimental atom environment by default. Old relative-only outputs must be
-rerun: the updated scoring schema prevents their reuse.

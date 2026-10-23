@@ -16,7 +16,7 @@ The accessibility error is then plotted against structural error (C-alpha RMSD) 
 |---|---|---|
 | 1 | True synthetic accessibility | [`truth_accessibility/`](truth_accessibility/README.md) |
 | 2 | Candidate generation | [`candidate_generation/`](candidate_generation/README.md) |
-| 3-5 | Candidate accessibility, accessibility error, structural accuracy | [`scoring/`](scoring/README.md) |
+| 3-5 | Candidate accessibility, accessibility error, structural accuracy | [`scoring/`](scoring/README.md) (result tables in [`scoring/results/`](scoring/README.md#results)) |
 | 6 | Shuffling and degraded-information controls | [`controls/`](controls/README.md) |
 | 7 | Combined figures and interpretation | [`plots/`](plots/README.md) |
 

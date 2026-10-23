@@ -8,14 +8,14 @@ Per protein, it measures ranking agreement (Spearman rho) and the structural ran
 
 ## Run
 
-Install the package from the repository root: `pip install -e stage3/truth_accessibility`. Prepare one folder with all 85 scoring NPZs and two combined tables, preserving `entry`, `candidate` and OpenFold `rank`. The test candidate table contains both accessibility and structural metrics. Do not restrict inputs to the old development/validation CSVs.
+Install the package from the repository root: `pip install -e stage3/truth_accessibility`. Prepare one folder with all 85 scoring NPZs and one combined `candidate_scores.csv` (the two files in [`scoring/results/`](../scoring/README.md#results) concatenated), preserving `entry`, `candidate` and OpenFold `rank`. That table holds both the accessibility and the structural metrics, so it serves as the accessibility, structure and rank input.
 
 ```bash
 python stage3/controls/run_controls.py \
   --scores-dir <all_scores> \
   --accessibility-csv <all_scores>/candidate_scores.csv \
-  --structure-csv <all_scores>/structure_candidate_scores.csv \
-  --rank-csv <all_scores>/structure_candidate_scores.csv \
+  --structure-csv <all_scores>/candidate_scores.csv \
+  --rank-csv <all_scores>/candidate_scores.csv \
   --rank-column rank --strict-join --out <controls_out>
 ```
 

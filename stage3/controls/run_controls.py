@@ -2,7 +2,7 @@
 """Stage 3, step 3: is accessibility a data type that informs structure prediction? Controls and the top-1 selection test.
 
 Reads the per-entry .npz files written by score_candidates.py. If those files hold only accessibility errors (the current
-output), pass the structural scores with --structure-csv structure_candidate_scores.csv; it is joined to each protein by
+output), pass the structural scores with --structure-csv candidate_scores.csv; it is joined to each protein by
 entry + candidate id (never by row position), and join_report.csv records matched / unmatched / dropped counts per protein.
 The question is NOT whether accessibility error and structural
 error correlate (the plot script shows that); it is whether the correlation, and the usefulness of choosing by accessibility,
@@ -26,7 +26,7 @@ differ more", a shuffled profile will do about as well as the real one. Compare 
 random rule: the shuffle null of the selection test need not sit at 0.5, because choosing the lowest of K noisy errors tends
 to pick the candidate whose error varies most (often a worse one), so the null can lie away from 0.5 (as in the synthetic tests).
 
-    python scripts/run_controls.py --scores-dir scores_out --structure-csv structure_candidate_scores.csv \\
+    python scripts/run_controls.py --scores-dir scores_out --structure-csv candidate_scores.csv \\
         --accessibility-csv candidate_scores.csv --rank-csv candidate_scores.csv --out controls_out
 (--accessibility-csv makes `real` use your existing ac_error / ac_corr_error; it is checked against the recomputation the controls use
 and the run STOPS if they disagree, so real and controls always come from one calculation. Plot: scripts/plot_controls.py, which
@@ -105,7 +105,7 @@ def main():
     ap.add_argument("--error-metrics", nargs="+", default=["mae", "corr"], choices=["mae", "corr"],
                     help="accessibility error: mae (mean absolute difference) and/or corr (1 - profile correlation)")
     ap.add_argument("--structure-csv", help="structural-score table (entry, candidate, rmsd_ca, lddt_ca, tm_score[, coverage_ca, coverage_mask]), e.g. "
-                                            "structure_candidate_scores.csv. REQUIRED when the .npz files hold accessibility only. Joined to the .npz "
+                                            "candidate_scores.csv. REQUIRED when the .npz files hold accessibility only. Joined to the .npz "
                                             "candidates by entry + candidate id (never by order); if both have structural values they must agree")
     ap.add_argument("--strict-join", action="store_true", help="exit 1 if any .npz candidate has no row in --structure-csv")
     ap.add_argument("--accessibility-csv", help="candidate_scores.csv from score_candidates.py. If given, the `real` control uses its ac_error / "

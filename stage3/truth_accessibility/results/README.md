@@ -2,7 +2,7 @@
 
 `summary.csv` contains the updated cluster-run summary for 30 development and 15 validation chains.
 It includes modified-residue/shadow masking and separate coordinate-record and usable coverage.
-Test A and Test B were not included.
+Test A and Test B are in [`../results_test/`](../results_test/README.md).
 
 `residues.csv.gz` contains 9,224 per-residue rows with total and side-chain absolute/relative
 accessibility values at all four radii, plus exclusion flags.

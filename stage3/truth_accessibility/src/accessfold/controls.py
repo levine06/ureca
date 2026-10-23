@@ -75,7 +75,7 @@ def normalise_id(cid: str) -> str:
 
 def read_table(path, columns: Sequence[str]) -> Dict[str, Dict[str, Dict[str, float]]]:
     """{entry: {candidate id: {column: float}}} from a CSV with `entry`, `candidate` and (some of) `columns`
-    (for example structure_candidate_scores.csv written by score_candidates.py). Columns absent from the file are simply not
+    (for example candidate_scores.csv written by score_candidates.py). Columns absent from the file are simply not
     present in the rows; an unparseable value becomes NaN. Duplicate (entry, candidate) rows are an error."""
     import csv
     import sys
