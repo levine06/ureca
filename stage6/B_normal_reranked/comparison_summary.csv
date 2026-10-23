@@ -1,0 +1,3 @@
+group,n_proteins,median_B_minus_A_A,median_lo,median_hi,mean_B_minus_A_A,mean_lo,mean_hi,n_B_better,n_unchanged,n_B_worse,n_choice_changed,mean_A_rmsd_A,mean_B_rmsd_A,mean_oracle_rmsd_A,mean_oracle_minus_A_A
+Development + validation,45,0,0,0,0.019518,-0.0291845,0.0917947,5,36,4,12,1.9911,2.01062,1.4447,-0.546399
+Test A + Test B,40,0,0,0,-0.163929,-0.46822,0.00209697,3,35,2,6,2.6046,2.44067,2.02743,-0.577171

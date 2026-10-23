@@ -32,3 +32,10 @@ stage3/candidate_generation/logs/
 /stage4/**/outcome_per_protein.csv
 /stage4/**/README_stage4.md
 /stage4/**/README_outcomes.md
+
+# Stage 6: baseline structures and experimental runs remain local.
+/stage6/inputs/
+/stage6/runs/
+/stage6/logs/
+/stage6/A_normal_openfold/structures/
+/stage6/**/*.svg

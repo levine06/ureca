@@ -56,3 +56,37 @@ Caveat: one protein, one seed. This shows the gradient is correct for the Stage 
 
 3. Apply the gradient to the denoised estimate inside the update, in the final 30% of steps only.
 4. Guidance schedule and safeguards.
+**Question:** does accessibility guidance improve generation beyond normal OpenFold and accessibility reranking?
+
+## A/B Baselines (Reused Stage 4 Results)
+
+| Condition | Files | Selection |
+|---|---|---|
+| A: normal OpenFold | `A_normal_openfold/candidate_rankings.csv`, `selected_candidates.csv` | Highest original `rank_score` |
+| B: normal + reranking | `B_normal_reranked/candidate_rankings.csv`, `selection_comparison.csv`, `comparison_summary.csv` | Highest `z(confidence) - 0.1 * z(accessibility MAE)` |
+
+There are 85 proteins, 25 original candidates each. A's table includes all original confidence scores/ranks and winner flags. `is_rank_1` identifies the supplied rank-1 candidate; `is_A_winner` includes all candidates tied within the evaluation tolerance. B records all combined scores, ranks and winner flags. Both point to the SAME original CIFs under `A_normal_openfold/structures/<split>/<protein>/seed_*/` (local, git-ignored). No structures are regenerated or modified for B.
+
+Selection tables list tied winner IDs; RMSD outcomes are their averages, not a new structure. RMSD is evaluation-only. `B_minus_A < 0` means reranking improves selection; oracle RMSD is the best of the 25. Tables were checked against the saved Stage 4 outcomes for all 85 proteins.
+
+[Comparison figure](B_normal_reranked/plots/stage6_baseline.png): one dot per protein, black bar = median with bootstrap interval. Negative changes favour B; the vertical axis is symmetric-log. Test A/B results: 3 better, 35 unchanged (within 0.01 angstroms), 2 worse; median change 0. The mean is -0.164 angstroms with a 95% interval spanning zero, so improvement is not established for the typical protein or conclusively for the average.
+
+Lambda was selected on validation only, not Test A/B; these are reused baseline results, not new guidance experiments. Reference accessibility is PDB-derived synthetic SASA. Test A/B were inspected in earlier stages. See the [frozen rule](../stage4/results/frozen_rule.json) and [Stage 4](../stage4/README.md) for the source protocol.
+
+## Remaining Conditions
+
+Local `runs/` placeholders are labelled A-E: **C** generates guided candidates; **D** reranks those same C candidates; **E** generates samples with shuffled accessibility guidance. C-E have not been run. Dataset splits (`development`, `validation`, `test_a`, `test_b`) are separate from experimental condition letters.
+
+The checks above found that reruns differ from the original Stage 3 candidates even with the same seed. These reused A/B results are therefore baseline reference evidence, not noise-paired controls for new guided runs. Generate matched unguided controls alongside guided runs for that comparison, matching code revision, checkpoint, inputs/features, templates, seeds, candidate counts and sampling settings. A/B share generation costs, but accessibility scoring adds overhead. Equal candidate counts alone do not establish equal runtime budgets.
+
+## Replot
+
+With the Stage 3 `accessfold` package, NumPy, SciPy and Matplotlib available, run from the repository root:
+
+```bash
+python stage6/plot_stage6_baseline.py \
+  --results stage4/results/rerank_per_protein.csv \
+  --expect-lambda 0.1 --out <local_plot_folder>
+```
+
+Keep CIFs, confidence JSONs, full run outputs and SVG duplicates locally; commit the compact ranking tables and PNG figure only.
