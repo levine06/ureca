@@ -40,7 +40,7 @@ Development and validation agree, so the three fitted parameters are not overfit
 no thresholds; the working acceptance criterion is validation Pearson/Spearman > 0.8, MAE < 0.15 and
 balanced accuracy > 0.8, all met. The Stage 3 test splits were not used.
 
-Plots: `plots/accessibility_comparison.png`, `plots/buried_exposed_accuracy.png`.
+Plots: `plots/accessibility_comparison.png`, `plots/buried_exposed_accuracy.png`. How to read each figure: [plots/README.md](plots/README.md).
 
 ## Gradient test (`test_gradients.py`)
 
@@ -53,7 +53,7 @@ lowest): target accessibility 0.65, estimated accessibility rises **0.032 -> 0.6
 grows from 6.1 to 12.5 A (the PCA arrow in the figure looks short because most of the move is out of that
 2D plane). Neighbours shift by up to ~1.5 A (RMSD 0.95 A over the chain). The result is not meant to be a
 realistic structure (no chain connectivity or clash terms), only a demonstration that the gradient works.
-Outputs: `results/gradient_test.csv`, `plots/gradient_test.png`.
+Outputs: `results/gradient_test.csv`, `plots/gradient_test.png` (see [plots/README.md](plots/README.md)).
 
 ## Limitations
 
