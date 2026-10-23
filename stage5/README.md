@@ -55,12 +55,6 @@ grows from 6.1 to 12.5 A (the PCA arrow in the figure looks short because most o
 realistic structure (no chain connectivity or clash terms), only a demonstration that the gradient works.
 Outputs: `results/gradient_test.csv`, `plots/gradient_test.png`.
 
-## Differences from the slide formulation
-
-The Stage 5 slide sketches a Gaussian kernel, $D_i = \sum_j \exp(-d_{ij}^2 / 2\sigma^2)$, $A_i = e^{-D_i}$. This
-implementation uses the sigmoid form from the Stage 5 brief ($\sigma((r_0 - d)/\tau)$), which has a tunable
-cutoff radius and a bounded (0, 1) output. Both are smooth and differentiable; the Gaussian variant was not tried.
-
 ## Limitations
 
 - C-alpha neighbour density ignores side-chain orientation, so it cannot reproduce exact SASA; it gives
