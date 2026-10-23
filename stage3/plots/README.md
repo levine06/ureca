@@ -6,9 +6,9 @@ All figures combine 2,125 candidates from 85 proteins: development (30 proteins,
 
 | Figure | Question | Headline |
 |---|---|---|
-| `accessibility_vs_accuracy/fig1_accessibility_vs_accuracy.png` | Do low-MAE candidates rank better structurally? | Group 1 median structural-rank percentile 0.33 vs group 5 0.64; median per-protein rho +0.31 |
-| `controls/controls_mae_rmsd_ca_overview.png` | Does the signal survive controls, and does picking the lowest MAE help? | Real rho +0.31; selected percentile 0.35 vs 0.51 under shuffling |
-| `controls/controls_corr_rmsd_ca_overview.png` | Same, with `1 - r` as the accessibility error | Real rho +0.29; selected percentile 0.39 vs 0.51 under shuffling |
+| [`fig1_accessibility_vs_accuracy.png`](accessibility_vs_accuracy/fig1_accessibility_vs_accuracy.png) | Do low-MAE candidates rank better structurally? | Group 1 median structural-rank percentile 0.33 vs group 5 0.64; median per-protein rho +0.31 |
+| [`controls_mae_rmsd_ca_overview.png`](controls/controls_mae_rmsd_ca_overview.png) | Does the signal survive controls, and does picking the lowest MAE help? | Real rho +0.31; selected percentile 0.35 vs 0.51 under shuffling |
+| [`controls_corr_rmsd_ca_overview.png`](controls/controls_corr_rmsd_ca_overview.png) | Same, with `1 - r` as the accessibility error | Real rho +0.29; selected percentile 0.39 vs 0.51 under shuffling |
 
 ## Measures
 
@@ -24,13 +24,15 @@ All figures combine 2,125 candidates from 85 proteins: development (30 proteins,
 
 ### Fig 1
 
+[`fig1_accessibility_vs_accuracy.png`](accessibility_vs_accuracy/fig1_accessibility_vs_accuracy.png)
+
 - **Panel A:** within each protein, sort the 25 candidates by accessibility error and split them into five groups of five (group 1 = closest to the reference, group 5 = furthest). Each dot is that protein/group's mean structural-rank percentile; the boxes summarise the 85 proteins and the black line is the median. The dashed line at 0.5 is chance (unrelated rankings). Average-rank ties can make group sizes unequal in future datasets.
 - **Panel B:** each dot is one protein's Spearman rho, grouped by dataset; each protein appears in the all-protein row and in its dataset row. The tick is the median rho across proteins, not their average; the bar is its 95% bootstrap interval, which describes uncertainty in the median, not the spread of individual proteins.
 - **Footer:** median rho +0.31 [95% CI +0.26, +0.41], positive in 67 of 85 proteins. The raw effect is the median, across proteins, of group 5 mean RMSD minus group 1 mean RMSD: +0.0624 angstroms [+0.0367, +0.0985]. It supports the expected direction but is a small typical absolute difference, and it is not a top-1 gain over OpenFold.
 
 ### Controls
 
-Each control figure has the same rows in two aligned panels, with Spearman rho and selection computed as above.
+The [MAE controls figure](controls/controls_mae_rmsd_ca_overview.png) and the [`1 - r` controls figure](controls/controls_corr_rmsd_ca_overview.png) have the same rows in two aligned panels, with Spearman rho and selection computed as above.
 
 - **Panel A, ranking agreement:** dots are the median of the per-protein rhos; horizontal lines are 95% bootstrap intervals over proteins. The three reference rows at the bottom are blank here because they do not define an accessibility error across candidates.
 - **Panel B, selection:** choose the lowest-accessibility-error candidate for each protein, then average its structural-rank percentile across proteins. Lower is better; 0.5 is a random pick.
@@ -49,6 +51,8 @@ Each control figure has the same rows in two aligned panels, with Spearman rho a
 The controls change the accessibility information or the residues used, not the candidate structures or their structural errors. All aggregate summaries remain pooled across datasets; colours alone do not establish a separate test-set result.
 
 ## Results and Interpretation
+
+Values below come from the [MAE](controls/controls_mae_rmsd_ca_overview.png) and [`1 - r`](controls/controls_corr_rmsd_ca_overview.png) controls figures; the rho of +0.31 also appears in [Fig 1](accessibility_vs_accuracy/fig1_accessibility_vs_accuracy.png).
 
 | Across all 85 proteins | MAE | 1 - r |
 |---|---:|---:|

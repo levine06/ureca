@@ -1,11 +1,5 @@
 # Stage 3: Accessibility
 
-Calculate reference accessibility from experimental structures and compare it
-with OpenFold3 candidate accessibility. "True" means calculated from experimental
-coordinates, not measured accessibility in solution. The calculation engine and
-validation are described in [Stage 2](../../stage2/README.md) and
-[its validation](../../stage2/validation/README.md).
-
 See the [Stage 3 overview](../README.md), partner-owned
 [candidate generation](../candidate_generation/README.md), and the separate
 [candidate scoring workflow](../scoring/README.md).
@@ -23,7 +17,8 @@ Those workflows are preserved; the scoring modes below are provided in `../scori
 
 `../scoring/prepare_openfold3_outputs.py` checks existing candidates before scoring;
 it generates no structures and calculates no accessibility or accuracy.
-`src/accessfold/` contains the required engine and reference tables.
+`src/accessfold/` contains the required engine and reference tables; see
+[Stage 2](../../stage2/README.md) and [its validation](../../stage2/validation/README.md).
 
 ## Run
 
