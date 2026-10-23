@@ -12,8 +12,8 @@ Colours: development proteins (30, used to fit the three model parameters) are b
 
 ## Measures
 
-- **Reference accessibility:** conventional relative SASA from the Stage 3 truth calculation (probe 1.4 A), clipped to [0, 1]. It comes from the experimental coordinates, not from independently measured accessibility.
-- **Differentiable accessibility:** the model output, between 0 (buried) and 1 (exposed), computed from C-alpha positions only.
+- **Reference accessibility:** conventional relative SASA (calculated by the Stage 2 `accessfold` package) from the Stage 3 truth calculation (probe 1.4 A), clipped to [0, 1]. It comes from the experimental coordinates, not from independently measured accessibility.
+- **Differentiable accessibility:** the model output (what the fitted neighbour-density equation calculates), between 0 (buried) and 1 (exposed), computed from C-alpha positions only.
 - **Buried / exposed:** buried means relative SASA below 0.2 (the Stage 3 convention); everything else is exposed.
 - **Unit of analysis:** scatter and confusion-matrix figures pool all residues of a split; the boxplot gives each protein one value.
 
@@ -23,7 +23,7 @@ Colours: development proteins (30, used to fit the three model parameters) are b
 
 ![Accessibility comparison](accessibility_comparison.png)
 
-- **Scatter (left):** each dot is one residue. Horizontal position is conventional relative SASA, vertical position is the differentiable estimate. Dots on the black diagonal are exact matches. A band that rises along the diagonal means the estimate follows the true exposure pattern. The legend gives each split's residue count and Pearson R.
+- **Scatter (left):** each dot is one residue. Horizontal position is conventional relative SASA (the relative SASA calculated by the Stage 2 `accessfold` package), vertical position is the differentiable estimate (the accessibility calculated by the fitted neighbour-density equation from C-alpha coordinates). Dots on the black diagonal are exact matches. A band that rises along the diagonal means the estimate follows the true exposure pattern. The legend gives each split's residue count and Pearson R.
 - **Marginal curves (top and right):** the distribution of true values (top) and estimates (right). Overlapping blue and orange curves mean the two splits have the same exposure mix. The estimate is squeezed toward the middle (few values near 1) compared with the real values, which is why points at high true SASA fall below the diagonal.
 - **Boxplot (right):** each dot is one protein's Pearson correlation between estimate and reference; the box shows the middle half, the orange line is the median and the whiskers show the range. Similar boxes for development and validation mean the fit generalises, and a short box means performance is consistent across proteins. Large proteins no longer dominate here.
 
